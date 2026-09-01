@@ -1,12 +1,15 @@
 """
-CBOE 지연 옵션 체인 수집기 — 장중 1시간 간격 + 장마감 후 1회.
-GitHub Actions cron은 UTC 고정이지만, 실제 실행 여부는 아래에서 미국 동부시간(ET)으로
-판단하므로 서머타임 전환은 자동으로 처리된다.
+CBOE 지연 옵션 체인 수집기 — 정확한 시각(ET 매시 45분)에 맞춰 수집.
+잡을 일찍 띄우고 이 스크립트가 목표 시각까지 기다렸다가 받는다.
+  python collect_cboe.py am    → 9:45, 10:45, 11:45, 12:45 ET
+  python collect_cboe.py pm    → 13:45, 14:45, 15:45, 16:15, 16:45 ET
+  python collect_cboe.py eod   → 즉시 1회 (장마감 후용)
+GitHub Actions cron은 UTC 고정이지만 목표 시각은 ET로 계산하므로 서머타임은 자동 처리.
 """
 import os, re, sys, time
 import requests
 import pandas as pd
-from datetime import datetime, time as T
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 TICKERS = ["SPY", "TSLA", "AAPL", "NVDA", "IBIT"]   # 지수는 "_SPX"처럼 앞에 _
@@ -15,20 +18,10 @@ ET = ZoneInfo("America/New_York")
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 PAT = re.compile(r"^(\D+)(\d{6})([CP])(\d{8})$")
 
-SESSION_START, SESSION_END = T(9, 30), T(17, 15)   # 장중 스냅샷 창 (16:45 실행이 늦어도 통과)
-EOD_START, EOD_END = T(17, 30), T(19, 30)          # 장마감 후 1회 스냅샷 창
-
-
-def snapshot_tag(now_et):
-    """실행 시각이 어느 창에 속하는지. 어느 창도 아니면 None → 아무것도 안 함."""
-    if now_et.weekday() >= 5:
-        return None
-    t = now_et.time()
-    if SESSION_START <= t <= SESSION_END:
-        return now_et.strftime("%H%M")          # 예: 1030, 1130, ...
-    if EOD_START <= t <= EOD_END:
-        return "eod"
-    return None
+SCHEDULE = {
+    "am": [(9, 45), (10, 45), (11, 45), (12, 45)],
+    "pm": [(13, 45), (14, 45), (15, 45), (16, 15), (16, 45)],   # 16:15 = 주식종가(16:00) 시세, 16:45 = 옵션마감(16:15) 이후
+}
 
 
 def fetch(sym):
@@ -59,14 +52,10 @@ def fetch(sym):
     return df.sort_values(["expiry", "cp", "strike"]).reset_index(drop=True)
 
 
-def main():
-    now = datetime.now(ET)
-    tag = snapshot_tag(now)
-    if tag is None:
-        print(f"skip: {now:%Y-%m-%d %H:%M} ET 는 수집 창 밖")
-        return
-    day = now.strftime("%Y-%m-%d")
-    failed = []
+def collect(tag):
+    """5종목 한 번 수집. 실패한 종목 수를 반환."""
+    day = datetime.now(ET).strftime("%Y-%m-%d")
+    fails = 0
     for sym in TICKERS:
         try:
             df = fetch(sym)
@@ -74,13 +63,43 @@ def main():
             os.makedirs(f"{OUT_DIR}/{name}/{day}", exist_ok=True)
             path = f"{OUT_DIR}/{name}/{day}/{name}_{day}_{tag}.csv"
             df.to_csv(path, index=False)
-            print(f"[ok] {name} {tag}: {len(df):>6} rows -> {path}")
+            print(f"[ok] {datetime.now(ET):%H:%M:%S} ET  {name} {tag}: {len(df):>6} rows", flush=True)
         except Exception as e:
-            failed.append(sym)
-            print(f"[FAIL] {sym}: {e}", file=sys.stderr)
-        time.sleep(2)
-    if failed:
-        sys.exit(1)
+            fails += 1
+            print(f"[FAIL] {sym} {tag}: {e}", file=sys.stderr, flush=True)
+        time.sleep(1)
+    return fails
+
+
+def sleep_until(target):
+    """target(ET datetime)까지 대기. 이미 지났으면 바로 반환."""
+    while True:
+        remaining = (target - datetime.now(ET)).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 60))
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "eod"
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        print("skip: 주말")
+        return
+
+    if mode == "eod":
+        sys.exit(1 if collect("eod") else 0)
+
+    total_fails = 0
+    for h, mnt in SCHEDULE[mode]:
+        target = now.replace(hour=h, minute=mnt, second=0, microsecond=0)
+        if datetime.now(ET) > target + timedelta(minutes=20):
+            print(f"skip {h:02d}{mnt:02d}: 잡이 너무 늦게 시작됨", flush=True)
+            continue
+        print(f"waiting for {target:%H:%M} ET ...", flush=True)
+        sleep_until(target)
+        total_fails += collect(f"{h:02d}{mnt:02d}")
+    sys.exit(1 if total_fails else 0)
 
 
 if __name__ == "__main__":
