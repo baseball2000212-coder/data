@@ -1,41 +1,54 @@
 name: collect cboe options
 
 on:
-  schedule:
-    # UTC 13:45~21:45 매시 45분 → 서머타임(EDT) 9:45~17:45 / 표준시(EST) 8:45~16:45 (15분 지연 → :30 시세)
-    # 스크립트가 ET 기준 9:30~16:45 만 실제 수집하므로 어느 계절이든 장중 8회 정도
-    - cron: "45 13-21 * * 1-5"
-    # 장마감 후 스냅샷: UTC 22:30 (EDT 18:30) / 23:30 (EST 18:30) 둘 다 걸고 스크립트가 하나만 통과
-    - cron: "30 22,23 * * 1-5"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "am / pm / eod"
+        required: true
+        default: "am"
+        type: choice
+        options: [am, pm, eod]
+  # GitHub 예약은 백업용. 외부 크론이 정시에 깨우고, 이건 늦게라도 한 번 더 시도 (놓친 회차는 스크립트가 건너뜀)
+  schedule:
+    - cron: "0 13 * * 1-5"    # am (EDT 9:00 / EST 8:00)
+    - cron: "0 17 * * 1-5"    # pm (EDT 13:00 / EST 12:00)
+    - cron: "30 22,23 * * 1-5" # eod
 
 permissions:
   contents: write
 
-concurrency:
-  group: collect
-  cancel-in-progress: false
-
 jobs:
   collect:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
+        with: { python-version: "3.12" }
       - run: pip install requests pandas
 
-      - run: python collect_cboe.py
-
-      - name: commit data
+      - name: decide mode
+        id: m
         run: |
-          git config user.name  "collector-bot"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          else
+            case "${{ github.event.schedule }}" in
+              "0 13 * * 1-5") echo "mode=am"  >> $GITHUB_OUTPUT ;;
+              "0 17 * * 1-5") echo "mode=pm"  >> $GITHUB_OUTPUT ;;
+              *)              echo "mode=eod" >> $GITHUB_OUTPUT ;;
+            esac
+          fi
+
+      - run: python collect_cboe.py ${{ steps.m.outputs.mode }}
+
+      - name: commit
+        if: always()
+        run: |
+          git config user.name "collector-bot"
           git config user.email "bot@users.noreply.github.com"
           git add data
           git diff --cached --quiet && echo "nothing new" && exit 0
-          git commit -m "collect $(TZ=America/New_York date '+%F %H:%M ET')"
-          git pull --rebase
-          git push
+          git commit -m "collect ${{ steps.m.outputs.mode }} $(TZ=America/New_York date +%F)"
+          git pull --rebase && git push
