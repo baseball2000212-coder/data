@@ -5,6 +5,7 @@
   live/<종목>.json = {"live": 최신 GEX·거래량, "series": 그날 분 단위 추이}
 """
 import os, sys, json, time, subprocess
+import requests
 from collections import deque
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,6 +19,20 @@ EVERY = 60                       # 초. CBOE 파일이 1분 남짓마다 새로 
 FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량
 BRANCH = "live"
 SERIES_MAX = 500
+
+
+def chart_bars(sym):
+    """CBOE 지연 시세 1분봉(그날 정규장). GEX와 같은 15분 지연이라 시각이 맞는다.
+    [시각, 시, 고, 저, 종, 콜 거래량, 풋 거래량]"""
+    r = requests.get(f"https://cdn.cboe.com/api/global/delayed_quotes/charts/intraday/{sym}.json",
+                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=30)
+    r.raise_for_status()
+    out = []
+    for b in r.json().get("data") or []:
+        p, v = b.get("price") or {}, b.get("volume") or {}
+        out.append([b["datetime"][:16], round(p.get("open", 0), 2), round(p.get("high", 0), 2), round(p.get("low", 0), 2),
+                    round(p.get("close", 0), 2), int(v.get("calls_volume") or 0), int(v.get("puts_volume") or 0)])
+    return out
 
 
 def git(*args, inp=None, env=None):
@@ -79,7 +94,12 @@ class Live:
                 opening = (self.docs.get(name) or {}).get("open")
                 if not opening or opening.get("date") != str(day):   # 그날 첫 계산 = 비교 기준(점)
                     opening = {"date": str(day), "t": m["quote_et"], "strikes": m.get("strikes")}
-                self.docs[name] = {"symbol": name, "gex": name not in gex.NO_GEX, "open": opening,
+                try:
+                    bars = chart_bars(s)
+                except Exception as e:
+                    print(f"[live] {name} 1분봉 실패: {e}", file=sys.stderr, flush=True)
+                    bars = (self.docs.get(name) or {}).get("bars") or []
+                self.docs[name] = {"symbol": name, "gex": name not in gex.NO_GEX, "open": opening, "bars": bars,
                                    "updated_kst": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
                                    "cboe_ts_et": ts.astimezone(ET).strftime("%Y-%m-%d %H:%M:%S"),
                                    "live": m, "series": self.series[s]}
