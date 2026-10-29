@@ -61,6 +61,10 @@ header p{margin:0;color:var(--sub);font-size:15px}
 .card .d{font-size:13px;color:var(--sub);margin:0 0 12px}
 .chart{position:relative;height:320px}
 .chart.sm{height:260px}
+.pg{display:flex;gap:0;height:420px}
+.pg .l{position:relative;flex:1 1 68%;min-width:0}
+.pg .r{position:relative;flex:1 1 32%;min-width:0}
+@media (max-width:640px){.pg{height:360px}.pg .l{flex-basis:58%}.pg .r{flex-basis:42%}}
 .tbl{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
 th{font-size:12px;color:var(--mute);text-align:right;font-weight:700;padding:6px 8px;border-bottom:1.5px solid var(--line);white-space:nowrap}
@@ -97,6 +101,11 @@ th:first-child,td:first-child{text-align:left}
   <div class="kpis" id="kpis"></div>
 
   <div id="gexArea">
+    <div class="card">
+      <h2>가격 · 감마 지도</h2>
+      <p class="d" id="pgDesc">왼쪽은 오늘 가격(2분봉), 오른쪽은 같은 가격 축의 행사가별 순 GEX(+ 빨강, − 파랑). 점은 오늘 첫 계산 때의 순 GEX</p>
+      <div class="pg"><div class="l"><canvas id="cPrice"></canvas></div><div class="r"><canvas id="cLadder"></canvas></div></div>
+    </div>
     <div class="card">
       <h2>행사가별 감마 노출</h2>
       <p class="d">현재가 1% 변동당 딜러 헤지 금액(백만 달러). 콜 +, 풋 −</p>
@@ -181,6 +190,13 @@ const vlines = {id:"vlines", afterDatasetsDraw(c){
     const w = ctx.measureText(l.label).width, flip = px + 5 + w > right;
     ctx.textAlign = flip ? "right" : "left";
     ctx.fillText(l.label, px + (flip ? -5 : 5), top + 12 + (l.row||0)*15); ctx.restore(); });
+  const H = c.options.plugins.vlines?.hlines || []; const y = c.scales.y;
+  H.forEach(l => { if (l.v==null) return; const py = y.getPixelForValue(l.v);
+    if (py < top || py > bottom) return;
+    ctx.save(); ctx.strokeStyle = l.color; ctx.lineWidth = 1.4; ctx.setLineDash(l.dash||[5,4]);
+    ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right, py); ctx.stroke(); ctx.setLineDash([]);
+    if (l.label){ ctx.fillStyle = l.color; ctx.font = "700 11px 'Noto Sans KR'"; ctx.textAlign = "right"; ctx.fillText(l.label, right - 4, py - 4); }
+    ctx.restore(); });
 }};
 Chart.register(vlines);
 
@@ -228,18 +244,21 @@ function render(){
   const s = current(), L = st.live, H = st.hourly;
   if (L?.live) $(`#px-${st.sym}`).textContent = L.live.spot;
   const chips = [];
-  if (L?.live) chips.push(`<button class="chip live ${st.view==="live"?"on":""}" data-v="live">실시간 ${L.live.quote_et}</button>`);
+  if (L?.live) chips.push(`<button class="chip live ${st.view==="live"?"on":""}" data-v="live">실시간 ${L.live.quote_et}${L.live.session && L.live.session !== "정규장" ? " · " + L.live.session : ""}</button>`);
   (H?.slots || []).forEach((x,i) => chips.push(`<button class="chip ${st.view===i?"on":""}" data-v="${i}">${x.quote_et}</button>`));
   $("#slots").innerHTML = chips.join("") || `<span class="ctl-label">아직 데이터가 없습니다</span>`;
   document.querySelectorAll("#buckets .chip").forEach(c => c.classList.toggle("on", c.dataset.b === st.bucket));
   if (!s){ $("#meta").textContent = "데이터를 기다리는 중입니다. 미국 장중(한국 밤)에 1분마다 갱신됩니다."; return; }
   const isLive = st.view === "live";
-  $("#meta").innerHTML = `<span><span class="dot ${isLive && fresh(L) ? "on" : ""}"></span>${st.sym} · ${s.date || H?.date || ""} 시세 ${s.quote_et} ET (KST ${s.quote_kst})</span>` +
-    (isLive ? `<span>계산 ${L.updated_kst.slice(11)} KST</span>` : `<span>매시 스냅샷</span>`);
+  const qd = s.quote_date_et && s.quote_date_et !== s.date ? s.quote_date_et.slice(5).replace("-","/") + " " : "";
+  $("#meta").innerHTML = `<span><span class="dot ${isLive && fresh(L) ? "on" : ""}"></span>${st.sym} · ${s.date || H?.date || ""} 세션${s.session ? " (" + s.session + ")" : ""}</span>` +
+    `<span>시세 ${qd}${s.quote_et} ET · KST ${s.quote_kst}</span>` +
+    (isLive ? `<span>계산 ${L.updated_kst.slice(11)} KST</span>` : `<span>매시 스냅샷</span>`) +
+    (s.spot_note ? `<span>${s.spot_note}</span>` : "");
   const gx = s.gex !== false && s.total;
   $("#gexArea").classList.toggle("hide", !gx); $("#bucketCtl").classList.toggle("hide", !gx);
   kpis(s, gx);
-  if (gx){ strikeChart(s); profileChart(s); intradayChart(); historyChart(); }
+  if (gx){ priceGexChart(s, isLive); strikeChart(s); profileChart(s); intradayChart(); historyChart(); }
   tables(s, isLive);
 }
 function fresh(L){ if (!L?.updated_kst) return false; const t = new Date(L.updated_kst.replace(" ","T")+"+09:00"); return Date.now() - t < 5*60*1000; }
@@ -256,6 +275,53 @@ function kpis(s, gx){
   if (s.atm_iv) items.push(["ATM IV", s.atm_iv.iv+"%", `${s.atm_iv.expiry.slice(5)} 월물 ${s.atm_iv.strike}`, ""]);
   items.push(["P/C 거래량", s.pc_vol ?? "–", `미결제 P/C ${s.pc_oi ?? "–"}`, ""]);
   $("#kpis").innerHTML = items.map(([l,v,sub,c]) => `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${sub}</div></div>`).join("");
+}
+
+const PAD = {SPX: 0.012, TSLA: 0.04};
+function candles(pts){
+  const out = [];
+  pts.forEach(p => { const [h, m] = p.t.split(":").map(Number); const k = `${String(h).padStart(2,"0")}:${String(m - m % 2).padStart(2,"0")}`;
+    const c = out[out.length - 1];
+    if (c && c.t === k){ c.h = Math.max(c.h, p.spot); c.l = Math.min(c.l, p.spot); c.c = p.spot; }
+    else out.push({t:k, o:c ? c.c : p.spot, h:Math.max(p.spot, c ? c.c : p.spot), l:Math.min(p.spot, c ? c.c : p.spot), c:p.spot}); });
+  return out;
+}
+function priceGexChart(s, isLive){
+  const day = s.date;
+  let pts = (st.live?.series || []).filter(x => x.date === day && x.spot != null);
+  let src = "2분봉";
+  if (pts.length < 2 && st.hourly?.slots?.length){ pts = st.hourly.slots.map(x => ({t:x.quote_et, spot:x.spot})); src = "매시 스냅샷"; }
+  const cs = candles(pts);
+  const prices = cs.flatMap(c => [c.h, c.l]).concat([s.spot]);
+  const pad = PAD[st.sym] || 0.03;
+  const lo = Math.min(...prices) * (1 - pad), hi = Math.max(...prices) * (1 + pad);
+  const k = s.strikes[st.bucket], net = k.k.map((x,i) => ({x:(k.c[i]||0) + (k.p[i]||0), y:x})).filter(d => d.y >= lo && d.y <= hi);
+  const op = (st.live?.open?.date === day && isLive) ? st.live.open.strikes?.[st.bucket] : st.hourly?.slots?.[0]?.strikes?.[st.bucket];
+  const dots = op ? op.k.map((x,i) => ({x:(op.c[i]||0) + (op.p[i]||0), y:x})).filter(d => d.y >= lo && d.y <= hi) : [];
+  const flip = s.flip?.[st.bucket];
+  $("#pgDesc").textContent = `왼쪽은 오늘 가격(${src}), 오른쪽은 같은 가격 축의 ${st.bucket==="monthly"?"월물":"전체 만기"} 행사가별 순 GEX(+ 빨강, − 파랑). 점은 ${op ? (st.live?.open?.t || st.hourly?.slots?.[0]?.quote_et) + " 기준" : "기준 없음"} 순 GEX` + (s.spot_note ? ` · ${s.spot_note}` : "");
+  const lines = [{v:s.spot, color:css("--ink"), label:`${s.spot}`, dash:[2,3]}, {v:flip, color:css("--orange"), label:flip ? `전환점 ${flip}` : ""}];
+  const up = css("--red"), dn = css("--blue");
+  const o1 = baseOpts();
+  o1.plugins.legend.display = false;
+  o1.scales.y = {...o1.scales.y, min:lo, max:hi, position:"right"};
+  o1.scales.x.ticks.maxTicksLimit = 7;
+  o1.plugins.tooltip.callbacks = {label: it => { const c = cs[it.dataIndex]; return `시 ${c.o} 고 ${c.h} 저 ${c.l} 종 ${c.c}`; }};
+  o1.plugins.vlines = {hlines: lines};
+  draw("#cPrice", {type:"bar", options:o1, data:{labels:cs.map(c=>c.t), datasets:[
+    {data:cs.map(c=>[c.l, c.h]), backgroundColor:cs.map(c=>c.c>=c.o?up:dn), barThickness:1.5, grouped:false},
+    {data:cs.map(c=>[Math.min(c.o,c.c), Math.max(c.o,c.c) + (c.o===c.c ? (hi-lo)*0.0015 : 0)]), backgroundColor:cs.map(c=>c.c>=c.o?up:dn), barPercentage:0.8, categoryPercentage:0.9, grouped:false}]}});
+  const o2 = baseOpts();
+  o2.indexAxis = "y";
+  o2.interaction = {mode:"nearest", axis:"y", intersect:false};
+  o2.plugins.legend.display = false;
+  o2.scales.y = {...o2.scales.y, type:"linear", min:lo, max:hi, display:false};
+  o2.scales.x.ticks.callback = v => money(v); o2.scales.x.ticks.maxTicksLimit = 4;
+  o2.plugins.tooltip.callbacks = {title: it => `행사가 ${it[0].parsed.y}`, label: it => `${it.dataset.label} ${money(it.parsed.x)}`};
+  o2.plugins.vlines = {hlines: lines.map(l => ({...l, label:""}))};
+  draw("#cLadder", {type:"bar", options:o2, data:{datasets:[
+    {label:"순 GEX", data:net, backgroundColor:net.map(d=>d.x>=0?up:dn), barPercentage:0.9, categoryPercentage:1, grouped:false},
+    {type:"scatter", label:"기준 시점", data:dots, backgroundColor:css("--mute"), pointRadius:3}]}});
 }
 
 function strikeChart(s){

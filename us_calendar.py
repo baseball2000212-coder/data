@@ -41,3 +41,26 @@ def is_fresh(ts_et, ref_et, day, max_lag=timedelta(minutes=10)):
     if ts_et.date() != day:
         return False
     return ts_et.time() >= close_time(day) or ref_et - ts_et <= max_lag
+
+
+def next_trading_day(d):
+    d += timedelta(days=1)
+    while not is_trading_day(d):
+        d += timedelta(days=1)
+    return d
+
+
+def session_of(t, gth=False):
+    """시장 시각(ET datetime)이 어느 거래 세션인지와 그 세션의 거래일.
+    SPX·VIX 옵션은 야간 거래(GTH, 20:15~다음 날 09:15 ET)가 있어 그 시간에도 가격·그릭스가 바뀐다.
+    야간 거래는 다음 거래일 세션으로 친다."""
+    d, hm = t.date(), t.time()
+    if is_trading_day(d) and time(9, 30) <= hm <= close_time(d):
+        return "정규장", d
+    if gth and hm >= time(20, 15):
+        return "야간", next_trading_day(d)
+    if gth and hm < time(9, 15) and is_trading_day(d):
+        return "야간", d
+    if is_trading_day(d) and hm < time(9, 30):
+        return "개장 전", d
+    return "장 마감 후", d

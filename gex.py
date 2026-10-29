@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone, time as dtime
 from zoneinfo import ZoneInfo
-from us_calendar import is_monthly, is_trading_day, is_fresh
+from us_calendar import is_monthly, is_trading_day, is_fresh, session_of
 
 ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
@@ -28,6 +28,7 @@ GRID = np.linspace(0.88, 1.12, 97)   # 가격 시나리오(감마 프로파일)
 NO_GEX = {"VIX"}                 # VIX 옵션은 VIX 선물이 기초자산이라 현물 감마 계산이 맞지 않음
 DASH = ["SPX", "TSLA"]           # 대시보드 종목
 AM_ROOTS = {"SPX"}               # 셋째 금요일 아침(09:30) 시가로 정산하는 월물 루트
+GTH = {"SPX", "VIX"}             # 야간 거래(GTH)가 있는 옵션
 HIST_DAYS = 90
 FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -117,8 +118,12 @@ def metrics(df, day, prev, sym, tag):
             df["vh"] = np.nan
     else:
         df["vh"] = np.nan
-    out = {"tag": tag, "date": str(day), "quote_et": qt.strftime("%H:%M"),
+    session, _ = session_of(qt, sym in GTH)
+    out = {"tag": tag, "date": str(day), "session": session, "quote_et": qt.strftime("%H:%M"),
+           "quote_date_et": str(qt.date()),
            "quote_kst": qt.astimezone(KST).strftime("%m/%d %H:%M"), "spot": round(spot, 2), "flow_min": flow_min}
+    if session != "정규장":
+        out["spot_note"] = "현재가는 직전 정규장 종가(지수는 야간에 계산되지 않음)" if sym in GTH else "현재가는 직전 정규장 종가"
 
     cv, pvv = vol[df["is_call"]].sum(), vol[~df["is_call"]].sum()
     co, po = oi[df["is_call"]].sum(), oi[~df["is_call"]].sum()
