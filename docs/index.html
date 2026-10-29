@@ -237,7 +237,7 @@ const vlines = {id:"vlines", afterDatasetsDraw(c){
     if (py < top || py > bottom) return;
     ctx.save(); ctx.strokeStyle = l.color; ctx.lineWidth = 1.4; ctx.setLineDash(l.dash||[5,4]);
     ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right, py); ctx.stroke(); ctx.setLineDash([]);
-    if (l.label){ ctx.fillStyle = l.color; ctx.font = "700 11px 'Noto Sans KR'"; ctx.textAlign = "right"; ctx.fillText(l.label, right - 4, py - 4); }
+    if (l.label){ ctx.fillStyle = l.color; ctx.font = "700 11px 'Noto Sans KR'"; ctx.textAlign = "right"; ctx.fillText(l.label, right - 4, l.below ? py + 13 : py - 4); }
     ctx.restore(); });
 }};
 Chart.register(vlines);
@@ -459,7 +459,7 @@ function ohlcTip(cs, prev, sym){
     const c = cs[t.dataPoints[0].dataIndex]; if (!c){ el.style.opacity = 0; return; }
     const pct = prev ? (c.c / prev - 1) * 100 : null, f = v => Number(v).toFixed(2);
     el.innerHTML = `<div class="h">${ampm(c.t)} ET</div>` +
-      (pct == null ? "" : `<div class="r"><span>${sym}</span><span class="${pct>=0?"up":"dn"}">${pct>=0?"+":""}${pct.toFixed(2)}%</span></div>`) +
+      (pct == null ? "" : `<div class="r"><span>${sym}${c.g ? " · GTH implied" : ""}</span><span class="${pct>=0?"up":"dn"}">${pct>=0?"+":""}${pct.toFixed(2)}%</span></div>`) +
       `<div class="r"><b>Open:</b><span>${f(c.o)}</span></div><div class="r"><b>High:</b><span>${f(c.h)}</span></div>` +
       `<div class="r"><b>Low:</b><span>${f(c.l)}</span></div><div class="r"><b>Close:</b><span class="${c.c>=c.o?"up":"dn"}">${f(c.c)}</span></div>` +
       (c.cv != null ? `<div class="r m"><span>Calls ${n0(c.cv)}</span><span>Puts ${n0(c.pv)}</span></div>` : "");
@@ -476,16 +476,27 @@ function agg(cs, n){
   const out = [];
   cs.forEach(c => { const [h, m] = c.t.split(":").map(Number); const k = `${String(h).padStart(2,"0")}:${String(m - m % n).padStart(2,"0")}`;
     const o = out[out.length - 1];
-    if (o && o.t === k){ o.h = Math.max(o.h, c.h); o.l = Math.min(o.l, c.l); o.c = c.c; o.cv += c.cv; o.pv += c.pv; }
+    if (o && o.t === k && !!o.g === !!c.g){ o.h = Math.max(o.h, c.h); o.l = Math.min(o.l, c.l); o.c = c.c; if (c.cv != null){ o.cv += c.cv; o.pv += c.pv; } }
     else out.push({...c, t:k}); });
   return out;
 }
 function priceGexChart(s, isLive){
   const day = s.date, L = st.live || {}, fd = st.fdoc;
-  let cs = [], line = null, src = `${st.ival}분봉`;
-  // 정규장: CBOE 1분봉(GEX와 같은 15분 지연). 야간: 분마다 역산한 지수를 선으로. 지난 시점은 그 시각까지만
+  let cs = [], line = null, src = `${st.ival}분봉`, sep = null;
+  // 정규장: CBOE 1분봉(GEX와 같은 15분 지연). 지난 시점은 그 시각까지만
+  // 야간: 직전 정규장 1분봉 뒤에, 분마다 역산한 지수로 만든 봉(시가 = 직전 값, 종가 = 이번 값)을 잇는다
   const srcBars = s.frame ? (fd?.bars || []) : (L.bars || []);
-  if (s.session !== "야간"){
+  const toC = b => ({t:b[0].slice(11), o:b[1], h:b[2], l:b[3], c:b[4], cv:b[5], pv:b[6]});
+  if (s.session === "야간"){
+    const last = srcBars.length ? srcBars[srcBars.length - 1][0].slice(0,10) : null;
+    const rth = agg(srcBars.filter(b => b[0].slice(0,10) === last).map(toC), st.ival);
+    const pts = s.frame ? fd.frames.slice(0, st.fi + 1).filter(f => f.sess === "야간").map(f => ({t:f.t, y:f.s}))
+                        : (L.series || []).filter(x => x.date === day && x.spot != null).map(p => ({t:p.t, y:p.spot}));
+    const ticks = pts.map((p, i) => { const o = i ? pts[i-1].y : p.y; return {t:p.t, o, c:p.y, h:Math.max(o, p.y), l:Math.min(o, p.y), g:true}; });
+    const gth = agg(ticks, st.ival);
+    if (rth.length || gth.length){ sep = rth.length && gth.length ? rth.length : null; cs = rth.concat(gth);
+      src = `직전 정규장 ${last ? last.slice(5) : ""} ${st.ival}분봉 + 야간 역산 지수 봉`; }
+  } else {
     const until = s.frame ? `${s.quote_date_et} ${s.quote_et}` : "9999";
     cs = srcBars.filter(b => b[0].slice(0,10) === (s.quote_date_et || day) && b[0].replace("T"," ") <= until)
                 .map(b => ({t:b[0].slice(11), o:b[1], h:b[2], l:b[3], c:b[4], cv:b[5], pv:b[6]}));
@@ -513,7 +524,9 @@ function priceGexChart(s, isLive){
   dots = dots.filter(d => d.y >= lo && d.y <= hi);
   const flip = s.flip?.[B];
   $("#pgDesc").textContent = `왼쪽은 가격(${src}, 시각은 ET), 오른쪽은 같은 가격 축의 ${BUCKET_KO[B]} 행사가별 순 GEX(+ 빨강, − 파랑) · 점은 ${refT ? refT + " ET(그날 첫 기록)" : "기준 시점"} 순 GEX · 주황 점선은 감마 플립 · 위 막대에서 날짜·시각을 바꾸면 지난 시점을 볼 수 있다` + (s.spot_note ? ` · ${s.spot_note}` : "");
-  const lines = [{v:s.spot, color:css("--ink"), label:`${s.spot}`, dash:[2,3]}, {v:flip, color:css("--orange"), label:flip ? `Flip ${flip}` : ""}];
+  // 현재가 이름표는 선 위, 플립 이름표는 플립이 현재가보다 낮으면 선 아래에 둬서 겹치지 않게
+  const lines = [{v:s.spot, color:css("--ink"), label:`${s.spot}`, dash:[2,3], below: flip != null && flip > s.spot},
+                 {v:flip, color:css("--orange"), label:flip ? `Flip ${flip}` : "", below: flip != null && flip <= s.spot}];
   const up = css("--cup"), dn = css("--cdn");
   const o1 = baseOpts();
   o1.plugins.legend.display = false;
@@ -522,6 +535,7 @@ function priceGexChart(s, isLive){
   o1.plugins.vlines = {hlines: lines};
   if (cs.length){
     o1.plugins.tooltip = {enabled:false, external:ohlcTip(cs, s.prev_close, st.sym)};
+    if (sep != null) o1.plugins.vlines = {...o1.plugins.vlines, lines:[{v:sep, color:css("--mute"), label:"GTH", dash:[2,4]}]};
     const flat = (hi - lo) * 0.0008;
     draw("#cPrice", {type:"bar", options:o1, data:{labels:cs.map(c=>c.t), datasets:[
       {data:cs.map(c=>[c.l, c.h]), backgroundColor:cs.map(c=>c.c>=c.o?up:dn), barThickness:1, grouped:false},
