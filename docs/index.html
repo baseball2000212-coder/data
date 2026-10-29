@@ -167,8 +167,9 @@ th:first-child,td:first-child{text-align:left}
 
 <script>
 const RAW = "https://raw.githubusercontent.com/baseball2000212-coder/data";
+const API = "https://api.github.com/repos/baseball2000212-coder/data/contents";
 const SYMS = ["SPX", "TSLA"];
-const POLL = 60;
+const POLL = 65;   // GitHub API 무인증 한도(시간당 60회) 안쪽. 바뀌지 않은 파일은 304라 한도에 안 잡힌다
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const BUCKETS = [["monthly","월물"],["all","전체 만기"]];
@@ -210,6 +211,17 @@ function baseOpts(){
 }
 function draw(id, cfg){ st.charts[id]?.destroy(); st.charts[id] = new Chart($(id), cfg); }
 async function getJSON(u){ try { const r = await fetch(`${u}?t=${Date.now()}`, {cache:"no-store"}); return r.ok ? r.json() : null; } catch(e){ return null; } }
+// 1분 갱신본은 raw 주소가 5분 캐시돼서 GitHub API로 읽는다. 한도를 넘기면 raw(최대 5분 늦음)로 대신한다
+const etags = {}, liveCache = {};
+async function getLive(sym){
+  try {
+    const h = {Accept: "application/vnd.github.raw+json"}; if (etags[sym]) h["If-None-Match"] = etags[sym];
+    const r = await fetch(`${API}/${sym}.json?ref=live`, {headers: h, cache: "no-store"});
+    if (r.status === 304 && liveCache[sym]) return liveCache[sym];
+    if (r.ok){ etags[sym] = r.headers.get("ETag"); liveCache[sym] = await r.json(); return liveCache[sym]; }
+  } catch(e){}
+  return getJSON(`${RAW}/live/${sym}.json`);
+}
 
 function init(){
   $("#tabs").innerHTML = SYMS.map(s => `<button class="tab" data-s="${s}">${s}<span class="px" id="px-${s}"></span></button>`).join("");
@@ -225,12 +237,13 @@ function init(){
 async function load(sym){
   st.sym = sym; try { localStorage.setItem("gex.sym", sym); } catch(e){}
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.s === sym));
-  [st.live, st.hourly] = await Promise.all([getJSON(`${RAW}/live/${sym}.json`), getJSON(`${RAW}/main/docs/gex/${sym}.json`)]);
+  [st.live, st.hourly] = await Promise.all([getLive(sym), getJSON(`${RAW}/main/docs/gex/${sym}.json`)]);
   if (!st.live && st.view === "live") st.view = st.hourly?.slots?.length ? st.hourly.slots.length - 1 : "live";
   st.next = POLL; render();
 }
 async function refresh(){
-  const l = await getJSON(`${RAW}/live/${st.sym}.json`); if (l) st.live = l;
+  if (document.hidden) return;   // 보이지 않는 탭은 쉬어서 한도를 아낀다
+  const l = await getLive(st.sym); if (l) st.live = l;
   if (new Date().getMinutes() % 10 === 0) { const h = await getJSON(`${RAW}/main/docs/gex/${st.sym}.json`); if (h) st.hourly = h; }
   render();
 }
