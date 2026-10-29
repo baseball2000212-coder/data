@@ -112,6 +112,7 @@ th:first-child,td:first-child{text-align:left}
 .pop b{display:block;color:var(--ink);font-size:16px;margin-bottom:8px}
 .pop ul{margin:0;padding-left:18px}.pop li{margin:3px 0}
 .pop .x{position:absolute;top:10px;right:12px;background:none;border:0;color:var(--mute);font-size:20px;cursor:pointer}
+.bar .info{margin-left:-4px;flex:none}
 .kpi .l .info{width:15px;height:15px;font-size:9px;margin-left:4px;vertical-align:1px}
 .empty{color:var(--mute);font-size:14px;padding:24px 0;text-align:center}
 </style>
@@ -130,8 +131,11 @@ th:first-child,td:first-child{text-align:left}
     <div class="grp"><button class="nav" id="dPrev" aria-label="이전 날짜">‹</button><select id="dSel" aria-label="날짜"></select><button class="nav" id="dNext" aria-label="다음 날짜">›</button></div>
     <div class="grp"><button class="nav" id="tPrev" aria-label="이전 시각">‹</button><select id="tSel" aria-label="시각"></select><button class="nav" id="tNext" aria-label="다음 시각">›</button><span class="unit">ET</span></div>
     <button class="chip live" id="liveBtn">● LIVE</button>
+    <button class="info" data-bi="time" aria-label="날짜·시각 설명">i</button>
     <div class="seg" id="buckets" aria-label="만기"></div>
+    <button class="info" data-bi="bucket" aria-label="만기 필터 설명">i</button>
     <div class="seg" id="ivals" aria-label="봉"></div>
+    <button class="info" data-bi="ival" aria-label="봉 간격 설명">i</button>
   </div>
 
   <div class="kpis" id="kpis"></div>
@@ -275,6 +279,24 @@ async function getLiveFile(sym){
 }
 
 let KPI_INFO = {};
+const BAR_INFO = {
+  time: {title:"Date · Time · LIVE", lines:[
+    "첫 칸은 날짜다. ‹ › 로 하루씩 넘기고, Today는 오늘(실시간)이다",
+    "둘째 칸은 그날 기록된 시점(ET)이다. 정규장은 1분마다, 야간은 5분마다 남기고, 분 단위 기록이 없던 지난 날은 매시 스냅샷만 있다",
+    "‹ › 로 한 시점씩 앞뒤로 움직이면 그 시점의 GEX·가격 봉을 다시 그린다",
+    "● LIVE를 누르면 최신 시점으로 돌아가고 60초마다 자동 갱신된다 (Cboe 시세라 15분 지연)",
+    "ET는 미국 동부시간이다. 한국시간은 서머타임 기간 +13시간, 표준시(11/1부터) +14시간"]},
+  bucket: {title:"Expiry Filter (Monthly · All · 0DTE)", lines:[
+    "<b style='display:inline;font-size:14px'>Monthly</b>: 월물 만기(매달 셋째 금요일) 옵션만으로 GEX를 계산한다. SPX는 오전 정산 월물(SPX 루트) 기준. 딜러가 오래 들고 헤지하는 포지션이라 기본값이다",
+    "<b style='display:inline;font-size:14px'>All</b>: 주간·분기·장기물까지 상장된 모든 만기를 합산한다",
+    "<b style='display:inline;font-size:14px'>0DTE</b>: 그날 만기되는 옵션만 본다. 하루짜리라 딜러가 헤지보다 포지션 정리로 대응할 수 있어 참고용이다. 당일 만기가 없는 날은 비어 있다",
+    "바꾸면 KPI(Net GEX·Gamma Flip·Call/Put Wall), GEX by Strike, Gamma Profile, SpotGammaFlow 오른쪽 막대가 함께 바뀐다. 거래량 표는 만기 필터와 무관하다"]},
+  ival: {title:"Candle Interval", lines:[
+    "SpotGammaFlow 가격 봉의 간격이다. 1분봉을 2·5·15분씩 묶어서 그린다",
+    "초록은 양봉(종가 ≥ 시가), 빨강은 음봉이다. 봉에 마우스를 올리면 시·고·저·종가가 뜬다",
+    "지난 날 TSLA 중 한 달이 넘은 날은 원본이 2분·5분봉이라 그보다 잘게는 안 나뉜다",
+    "SPX 야간(GTH)에는 지수가 멈춰 있어 옵션 가격으로 역산한 지수로 봉을 만든다"]}
+};
 function setTitle(h, text){ if (h.firstChild && h.firstChild.nodeType === 3) h.firstChild.nodeValue = text; else h.prepend(text); }
 function popover(btn, title, lines){
   closePop();
@@ -295,6 +317,7 @@ function setupInfo(){
     b.onclick = e => { e.stopPropagation(); popover(b, h.firstChild.textContent.trim(), d.textContent.split(/(?<=[.다])\s+|\s·\s/).filter(Boolean)); };
     h.appendChild(b);
   });
+  $("#bar").addEventListener("click", e => { const b = e.target.closest(".info"); if (b){ e.stopPropagation(); const k = BAR_INFO[b.dataset.bi]; popover(b, k.title, k.lines); } });
   $("#kpis").addEventListener("click", e => { const b = e.target.closest(".info"); if (b){ e.stopPropagation(); const k = KPI_INFO[b.dataset.k]; popover(b, k.title, k.lines); } });
   document.addEventListener("click", e => { if (!e.target.closest(".pop")) closePop(); });
   addEventListener("scroll", closePop, {passive:true});
