@@ -177,8 +177,16 @@ class Live:
         try:
             env = dict(os.environ, GIT_INDEX_FILE=os.path.join(git("rev-parse", "--git-dir"), "live.idx"))
             git("read-tree", "--empty", env=env)
-            files = {f"{n}.json": d for n, d in self.docs.items()}
-            files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"]})
+            mine = {s.lstrip("_") for s in self.syms}
+            files = {f"{n}.json": d for n, d in self.docs.items() if n in mine}
+            files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"] and n in mine})
+            try:   # 이 잡이 맡지 않은 종목 파일은 브랜치에 있는 최신본을 그대로 둔다(야간 잡이 TSLA를 옛것으로 덮어쓰지 않게)
+                git("fetch", "-q", "--depth", "1", "origin", BRANCH)
+                for path in git("ls-tree", "--name-only", "FETCH_HEAD").split():
+                    if path not in files and path.split("_")[0].split(".")[0] not in mine:
+                        files[path] = json.loads(git("show", f"FETCH_HEAD:{path}"))
+            except Exception:
+                pass
             for path, doc in files.items():
                 blob = git("hash-object", "-w", "--stdin", inp=json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
                 git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env)
