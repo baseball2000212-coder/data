@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "am / pm / eod / test(지금 1회, 커밋 안 함) / live(SPX·TSLA 실시간 GEX 1회 갱신)"
+        description: "am / pm / eod / test(지금 1회, 커밋 안 함) / live(SPX·TSLA 실시간 GEX 1회 갱신) / gth(SPX 야간 거래 1분 갱신)"
         required: true
         default: "am"
         type: choice
-        options: [am, pm, eod, test, live]
+        options: [am, pm, eod, test, live, gth]
   # GitHub 예약은 백업용. 외부 크론이 정시에 깨우고, 이건 늦게라도 한 번 더 시도 (이미 받은 회차는 스크립트가 건너뜀)
   schedule:
     - cron: "0 13 * * 1-5"    # am (EDT 9:00 / EST 8:00)
@@ -21,7 +21,7 @@ permissions:
 # 같은 시간대에 잡이 두 개 뜨면(외부 크론 + GitHub 백업 예약) 하나는 대기시킴.
 # 뒤에 도는 잡은 이미 받은 회차를 건너뛰므로 덮어쓰지 않는다.
 concurrency:
-  group: collect
+  group: ${{ github.event.inputs.mode == 'gth' && 'gth' || 'collect' }}   # 야간 잡은 따로 줄 서서 정규장 수집을 막지 않는다
   cancel-in-progress: false
 
 jobs:
@@ -73,5 +73,5 @@ jobs:
         run: python collect_cboe.py ${{ steps.m.outputs.mode }}
 
       - name: commit (남은 변경분)
-        if: always() && steps.m.outputs.mode != 'test' && steps.m.outputs.mode != 'live'
+        if: always() && steps.m.outputs.mode != 'test' && steps.m.outputs.mode != 'live' && steps.m.outputs.mode != 'gth'
         run: bash commit.sh "collect ${{ steps.m.outputs.mode }} ${{ steps.d.outputs.day }}"
