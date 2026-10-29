@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone, time as dtime
 from zoneinfo import ZoneInfo
-from us_calendar import is_monthly, is_trading_day, is_fresh, session_of
+from us_calendar import is_monthly, is_trading_day, is_fresh, session_of, prev_trading_day
 
 ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
@@ -190,6 +190,9 @@ def metrics(df, day, prev, sym, tag, prevs=None):
     out["pc_vol"] = round(pvv / cv, 3) if cv else None
     out["pc_oi"] = round(po / co, 3) if co else None
     out["vol_total"] = int(cv + pvv)
+    # CBOE 지연 시세의 거래량은 정규장 거래만 센다(야간 거래량은 안 준다). 정규장 밖에서는 직전 정규장 거래량이 그대로 남아 있다
+    vol_day = day if session in ("정규장", "장 마감 후") else prev_trading_day(day)
+    out["vol_date"] = str(vol_day)
     out["vh_total"] = None if prev is None else int(df["vh"].sum())
 
     # 최근 월물 ATM IV
@@ -212,6 +215,8 @@ def metrics(df, day, prev, sym, tag, prevs=None):
     live_k = (df["expiry"] >= day) & df["strike"].between(spot * 0.8, spot * 1.2)
     out["top_volume"] = rows(df[(vol > 0) & live_k].nlargest(12, "volume"))
     out["top_flow"] = rows(df[(df["vh"].fillna(0) > 0) & live_k].nlargest(12, "vh")) if prev is not None else []
+    if prevs is not None and session != "정규장":   # 정규장 밖에서는 거래량이 멈춰 있어 유입이 없다
+        prevs = {k: None for k in prevs}
     if prevs is not None:
         # 창별 유입: 그만큼 전 스냅샷 대비 늘어난 거래량. close = 지난 정규장 마감 이후 = 오늘 누적 거래량(거래량은 매일 0부터 다시 센다)
         out["flows"] = {}

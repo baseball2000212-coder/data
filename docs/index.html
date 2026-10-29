@@ -178,8 +178,8 @@ th:first-child,td:first-child{text-align:left}
 
   <div class="grid2">
     <div class="card">
-      <h2>Top Volume (Today)</h2>
-      <p class="d">장 시작부터 지금까지 가장 많이 거래된 계약</p>
+      <h2 id="volTitle">Top Volume (Today)</h2>
+      <p class="d">장 시작부터 지금까지 가장 많이 거래된 계약 · Cboe 지연 시세는 정규장 거래량만 준다(야간 거래량 없음). 정규장 밖에서는 직전 정규장 거래량이며 제목에 그 날짜를 적는다</p>
       <div class="tbl"><table id="tVol"></table></div>
     </div>
     <div class="card">
@@ -190,12 +190,12 @@ th:first-child,td:first-child{text-align:left}
   </div>
   <div class="grid2">
     <div class="card">
-      <h2>Volume by Expiry</h2>
+      <h2 id="expTitle">Volume by Expiry</h2>
       <p class="d">유입이 많은 순. 콜 비중이 높을수록 콜 쪽 거래</p>
       <div class="tbl"><table id="tExp"></table></div>
     </div>
     <div class="card">
-      <h2>Volume by Strike</h2>
+      <h2 id="strikeTitle">Volume by Strike</h2>
       <p class="d">만기를 합친 행사가·콜풋별 거래량, 유입이 많은 순</p>
       <div class="tbl"><table id="tStrike"></table></div>
     </div>
@@ -716,6 +716,13 @@ function tables(s, isLive){
     fdesc = flow ? `직전 스냅샷 이후 ${win}분 동안 거래량이 가장 많이 늘어난 계약(지난 시점은 매시 스냅샷끼리만 비교한다)`
                  : "비교할 직전 시세가 없거나 장 마감 후라 유입을 계산하지 않았습니다.";
   }
+  // 정규장 밖: 거래량이 직전 정규장 값에 멈춰 있다 → 제목에 그 날짜를 적고 유입 창은 끈다
+  const vd = s.vol_date, off = s.session && s.session !== "정규장" && vd;
+  const tag = off ? ` (${vd.slice(5)} session)` : "";
+  setTitle($("#volTitle"), off ? `Top Volume${tag}` : "Top Volume (Today)");
+  setTitle($("#expTitle"), `Volume by Expiry${tag}`); setTitle($("#strikeTitle"), `Volume by Strike${tag}`);
+  if (off && FW){ ftitle = `Top Flow${tag}`;
+    fdesc = `정규장 밖이라 거래량이 ${vd.slice(5)} 정규장 값에 멈춰 있어 유입을 계산할 수 없다(Cboe 지연 시세는 야간 거래량을 주지 않는다). 아래는 ${vd.slice(5)} 정규장 거래량 상위`; }
   setTitle($("#flowTitle"), ftitle);
   $("#flowDesc").textContent = fdesc;
   const V = s.top_volume || s.top_contracts || [];
