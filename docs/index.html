@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>옵션 감마 대시보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#FFFFFF; --ink:#222222; --sub:#45515E; --mute:#8E8E93; --faint:#A9AEB8;
+  --line:#ECEEF2; --line2:#F0F2F5; --panel:#F5F7FA; --tint:#EFF4FF;
+  --blue:#1456F0; --navy:#17437D; --red:#E5383B; --orange:#E8590C; --pink:#C2389E; --pinkbg:#FDF2FA;
+  --card:#FFFFFF; --shadow:0 4px 18px rgba(20,40,90,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
+    --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
+    --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
+  --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
+  --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --shadow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans KR",system-ui,sans-serif;
+  letter-spacing:-.2px;word-break:keep-all;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 16px 56px}
+header h1{font-weight:900;font-size:30px;margin:0 0 6px;letter-spacing:-.6px}
+header p{margin:0;color:var(--sub);font-size:15px}
+.meta{color:var(--mute);font-size:13px;margin-top:6px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 14px}
+.tab{border:1.5px solid var(--line);background:var(--card);color:var(--sub);border-radius:999px;padding:7px 16px;
+  font:700 15px "Noto Sans KR";cursor:pointer}
+.tab .px{font-weight:500;color:var(--mute);margin-left:6px;font-size:13px}
+.tab.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.tab.on .px{color:#DDE6FF}
+.controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-bottom:18px}
+.ctl-label{font-size:13px;color:var(--mute);font-weight:700;margin-right:8px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1.5px solid var(--line);background:var(--card);color:var(--sub);border-radius:10px;padding:5px 10px;
+  font:500 13px "Noto Sans KR";cursor:pointer}
+.chip.on{background:var(--tint);border-color:var(--blue);color:var(--blue);font-weight:700}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .l{font-size:13px;color:var(--mute);font-weight:700}
+.kpi .v{font-size:26px;font-weight:900;margin-top:4px;letter-spacing:-.5px}
+.kpi .s{font-size:12px;color:var(--mute);margin-top:2px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:16px}
+.card{background:var(--card);border:1.5px solid var(--line);border-radius:20px;padding:20px 20px 16px;box-shadow:var(--shadow);
+  margin-bottom:16px;min-width:0}
+.card h2{font-size:18px;margin:0 0 4px;font-weight:700}
+.card .d{font-size:13px;color:var(--sub);margin:0 0 12px}
+.chart{position:relative;height:320px}
+.chart.sm{height:260px}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{font-size:12px;color:var(--mute);text-align:right;font-weight:700;padding:6px 8px;border-bottom:1.5px solid var(--line);white-space:nowrap}
+td{text-align:right;padding:7px 8px;border-bottom:1.5px solid var(--line2);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+.b{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px}
+.b.monthly{background:var(--tint);color:var(--blue)}
+.b.weekly{background:var(--panel);color:var(--sub)}
+.b.dte{background:var(--pinkbg);color:var(--pink)}
+.c{color:var(--red);font-weight:700}.p{color:var(--blue);font-weight:700}
+.pos{color:var(--red)}.neg{color:var(--blue)}
+.note{background:var(--panel);border-left:6px solid var(--blue);border-radius:0 16px 16px 0;padding:16px 20px;
+  font-size:13.5px;color:var(--sub);line-height:1.7}
+.note b{color:var(--ink)}
+.hide{display:none!important}
+.empty{color:var(--mute);font-size:14px;padding:30px 0;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>옵션 감마 대시보드</h1>
+    <p>미국 ETF·종목 옵션의 딜러 감마 노출(GEX) · 기본은 월물 만기 기준 · 1시간 간격</p>
+    <div class="meta" id="meta">불러오는 중…</div>
+  </header>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="controls">
+    <div><span class="ctl-label">회차 (시세 기준 ET)</span><span class="chips" id="slots"></span></div>
+    <div id="bucketCtl"><span class="ctl-label">만기</span><span class="chips" id="buckets"></span></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div id="gexArea">
+    <div class="card">
+      <h2>행사가별 감마 노출</h2>
+      <p class="d" id="strikeDesc">현재가 1% 변동당 딜러 헤지 금액(백만 달러). 콜 +, 풋 −</p>
+      <div class="chart"><canvas id="cStrike"></canvas></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>가격별 감마 프로파일</h2>
+        <p class="d">가격이 움직이면 순 GEX가 어떻게 바뀌나. 0을 지나는 곳이 감마 전환점</p>
+        <div class="chart sm"><canvas id="cProfile"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>오늘 회차별 추이</h2>
+        <p class="d">순 GEX(막대)와 현재가(선). OI는 장중 고정이라 변화는 가격·변동성 때문</p>
+        <div class="chart sm"><canvas id="cIntraday"></canvas></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>일별 추이 (마감 회차)</h2>
+      <p class="d">월물 순 GEX와 현재가, 최근 90거래일</p>
+      <div class="chart sm"><canvas id="cHistory"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="topTitle">이번 회차 거래량 상위 계약</h2>
+    <p class="d" id="topDesc">직전 회차 대비 늘어난 거래량. 미결제보다 크게 들어온 계약은 오늘 새로 잡힌 포지션일 가능성이 크다</p>
+    <div class="tbl"><table id="tTop"></table></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>만기별 거래량</h2>
+      <p class="d">이번 회차 증가분 순. 콜 비중이 높을수록 콜 쪽 거래</p>
+      <div class="tbl"><table id="tExp"></table></div>
+    </div>
+    <div class="card">
+      <h2>행사가별 거래량</h2>
+      <p class="d">만기를 합친 행사가·콜풋별 거래량</p>
+      <div class="tbl"><table id="tStrike"></table></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>계산 방법</b> — GEX = 감마 × 미결제약정 × 100 × 현재가² × 1%. 딜러가 콜은 매수, 풋은 매도한 상태라는 통상 가정으로 콜 +, 풋 −.
+    순 GEX가 <b>양(+)</b>이면 딜러가 오르면 팔고 내리면 사서 변동을 줄이는 쪽, <b>음(−)</b>이면 반대로 변동을 키우는 쪽이다.
+    개별 종목(TSLA·NVDA 등)은 개인의 콜 매수가 많아 딜러가 콜을 판 상태일 수 있으니 콜·풋 막대를 따로 보고 판단한다.<br>
+    <b>월물 기준인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 생기고 오늘 사라지는 0DTE 포지션은 잡히지 않는다. 그래서 헤지 포지션이 남아 있는 월물(셋째 금요일 만기)을 기본으로 보고, 0DTE·위클리는 거래량 표로 본다.<br>
+    <b>시세</b> — CBOE 무료 시세라 15분 늦다. 회차 이름은 시세가 반영하는 시장 시각(ET). VIX 옵션은 VIX 선물이 기초자산이라 GEX를 계산하지 않는다.
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const BUCKETS = [["monthly","월물"],["all","전체 만기"]];
+const BUCKET_KO = {monthly:"월물", weekly:"위클리", "0dte":"0DTE"};
+const st = {sym:null, doc:null, slot:-1, bucket:"monthly", charts:{}};
+
+const fmtM = v => v==null ? "–" : (Math.abs(v)>=1000 ? (v/1000).toFixed(2)+"B" : Math.round(v)+"M");
+const money = v => v==null ? "–" : (v<0 ? "−$" : "$") + fmtM(Math.abs(v));
+const sgn = v => v==null ? "" : (v>0 ? "pos" : v<0 ? "neg" : "");
+const n0 = v => v==null ? "–" : Number(v).toLocaleString("en-US");
+const kst = s => s ? `KST ${s}` : "";
+
+const vlines = {id:"vlines", afterDatasetsDraw(c){
+  const L = c.options.plugins.vlines?.lines || []; const {ctx, chartArea:{top,bottom}, scales:{x}} = c;
+  L.forEach(l => { if (l.v==null) return; const px = x.getPixelForValue(l.v);
+    if (px < c.chartArea.left || px > c.chartArea.right) return;
+    ctx.save(); ctx.strokeStyle = l.color; ctx.lineWidth = 1.6; ctx.setLineDash(l.dash||[5,4]);
+    ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = l.color; ctx.font = "700 12px 'Noto Sans KR'"; ctx.textAlign = l.align||"left";
+    ctx.fillText(l.label, px + (l.align==="right" ? -5 : 5), top + 12 + (l.row||0)*15); ctx.restore(); });
+}};
+Chart.register(vlines);
+
+function baseOpts(){
+  const grid = css("--line2"), tick = css("--mute");
+  return {responsive:true, maintainAspectRatio:false, animation:false,
+    interaction:{mode:"index", intersect:false},
+    plugins:{legend:{labels:{color:css("--sub"), boxWidth:12, font:{family:"Noto Sans KR"}}},
+      tooltip:{titleFont:{family:"Noto Sans KR"}, bodyFont:{family:"Noto Sans KR"}}},
+    scales:{x:{grid:{color:grid}, ticks:{color:tick}}, y:{grid:{color:grid}, ticks:{color:tick}}}};
+}
+function draw(id, cfg){ st.charts[id]?.destroy(); st.charts[id] = new Chart($(id), cfg); }
+
+async function getJSON(p){ const r = await fetch(`${p}?t=${Date.now()}`); if(!r.ok) throw new Error(p); return r.json(); }
+
+async function init(){
+  let idx;
+  try { idx = await getJSON("gex/index.json"); } catch(e){ $("#meta").textContent = "데이터가 아직 없습니다."; return; }
+  $("#tabs").innerHTML = idx.symbols.map(s =>
+    `<button class="tab" data-s="${s.symbol}">${s.symbol}<span class="px">${s.spot ?? ""}</span></button>`).join("");
+  $("#tabs").onclick = e => { const b = e.target.closest(".tab"); if (b) load(b.dataset.s); };
+  $("#buckets").innerHTML = BUCKETS.map(([k,l]) => `<button class="chip" data-b="${k}">${l}</button>`).join("");
+  $("#buckets").onclick = e => { const b = e.target.closest(".chip"); if (b){ st.bucket = b.dataset.b; render(); } };
+  $("#slots").onclick = e => { const b = e.target.closest(".chip"); if (b){ st.slot = +b.dataset.i; render(); } };
+  let saved = null; try { saved = localStorage.getItem("gex.sym"); } catch(e){}
+  const first = idx.symbols.find(s => s.symbol === saved) ? saved : idx.symbols[0]?.symbol;
+  if (first) load(first);
+}
+
+async function load(sym){
+  st.sym = sym; try { localStorage.setItem("gex.sym", sym); } catch(e){}
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.s === sym));
+  st.doc = await getJSON(`gex/${sym}.json`); st.slot = st.doc.slots.length - 1; render();
+}
+
+function render(){
+  const d = st.doc, s = d.slots[st.slot]; if (!s) return;
+  $("#meta").textContent = `${d.symbol} · ${d.date} (ET) · 시세 ${s.quote_et} ET (${kst(s.quote_kst)}) · 갱신 ${d.updated_kst} KST`;
+  $("#slots").innerHTML = d.slots.map((x,i) => `<button class="chip ${i===st.slot?"on":""}" data-i="${i}">${x.quote_et}</button>`).join("");
+  document.querySelectorAll("#buckets .chip").forEach(c => c.classList.toggle("on", c.dataset.b === st.bucket));
+  const gx = d.gex && s.gex !== false && s.total;
+  $("#gexArea").classList.toggle("hide", !gx); $("#bucketCtl").classList.toggle("hide", !gx);
+  kpis(d, s, gx);
+  if (gx){ strikeChart(s); profileChart(s); intradayChart(d); historyChart(d); }
+  tables(s);
+}
+
+function kpis(d, s, gx){
+  const b = st.bucket, t = gx ? s.total[b] : null, flip = gx ? s.flip?.[b] : null;
+  const items = [["현재가", s.spot, `시세 ${s.quote_et} ET`, ""]];
+  if (gx){
+    items.push([`순 GEX · ${b==="monthly"?"월물":"전체"}`, money(t.net), t.net>=0 ? "양(+) 감마: 변동 완화 쪽" : "음(−) 감마: 변동 확대 쪽", sgn(t.net)]);
+    items.push(["감마 전환점", flip ?? "–", flip ? (s.spot>=flip ? `현재가가 ${(s.spot-flip).toFixed(2)} 위` : `현재가가 ${(flip-s.spot).toFixed(2)} 아래`) : "범위 안에 없음", ""]);
+    items.push(["콜월 (월물)", s.call_wall ?? "–", "콜 감마가 가장 큰 행사가", "pos"]);
+    items.push(["풋월 (월물)", s.put_wall ?? "–", "풋 감마가 가장 큰 행사가", "neg"]);
+  } else if (s.gex_note){ items.push(["GEX", "–", s.gex_note, ""]); }
+  if (s.atm_iv) items.push(["ATM IV", s.atm_iv.iv+"%", `${s.atm_iv.expiry.slice(5)} 월물 ${s.atm_iv.strike}`, ""]);
+  items.push(["P/C 거래량", s.pc_vol ?? "–", `미결제 P/C ${s.pc_oi ?? "–"}`, ""]);
+  $("#kpis").innerHTML = items.map(([l,v,sub,c]) => `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${sub}</div></div>`).join("");
+}
+
+function strikeChart(s){
+  const k = s.strikes[st.bucket]; const o = baseOpts();
+  o.scales.x = {...o.scales.x, type:"linear", min:k.k[0], max:k.k[k.k.length-1]};
+  o.scales.y.ticks.callback = v => money(v);
+  o.plugins.tooltip.callbacks = {title: it => `행사가 ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
+  o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`현재가 ${s.spot}`, dash:[2,3]},
+    {v:s.flip?.[st.bucket], color:css("--orange"), label:`전환점 ${s.flip?.[st.bucket] ?? ""}`, row:1}]};
+  draw("#cStrike", {type:"bar", options:o, data:{datasets:[
+    {label:"콜", data:k.k.map((x,i)=>({x, y:k.c[i]})), backgroundColor:css("--red"), grouped:false, barPercentage:1, categoryPercentage:1},
+    {label:"풋", data:k.k.map((x,i)=>({x, y:k.p[i]})), backgroundColor:css("--blue"), grouped:false, barPercentage:1, categoryPercentage:1}]}});
+}
+
+function profileChart(s){
+  const p = s.profile; const o = baseOpts();
+  o.scales.x = {...o.scales.x, type:"linear", min:p.s[0], max:p.s[p.s.length-1]};
+  o.scales.y.ticks.callback = v => money(v);
+  o.plugins.tooltip.callbacks = {title: it => `가격 ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
+  o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:"현재가", dash:[2,3]}]};
+  const ds = [["monthly","월물",css("--navy"),3],["all","전체 만기",css("--faint"),2]].filter(([b]) => p[b]).map(([b,l,c,w]) =>
+    ({label:l, data:p.s.map((x,i)=>({x, y:p[b][i]})), borderColor:c, borderWidth:w, pointRadius:0, tension:.25}));
+  ds.push({label:"0", data:[{x:p.s[0],y:0},{x:p.s[p.s.length-1],y:0}], borderColor:css("--mute"), borderWidth:1, borderDash:[4,4], pointRadius:0});
+  o.plugins.legend.labels.filter = it => it.text !== "0";
+  draw("#cProfile", {type:"line", options:o, data:{datasets:ds}});
+}
+
+function intradayChart(d){
+  const sl = d.slots.filter(x => x.total); const o = baseOpts();
+  o.scales.y.ticks.callback = v => money(v);
+  o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
+  draw("#cIntraday", {data:{labels:sl.map(x=>x.quote_et), datasets:[
+    {type:"bar", label:`순 GEX (${st.bucket==="monthly"?"월물":"전체"})`, data:sl.map(x=>x.total[st.bucket].net),
+     backgroundColor:sl.map(x=>x.total[st.bucket].net>=0?css("--red"):css("--blue")), yAxisID:"y"},
+    {type:"line", label:"현재가", data:sl.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2, pointRadius:3, yAxisID:"y2"}]}, options:o});
+}
+
+function historyChart(d){
+  const h = d.history.filter(x => x.net_monthly != null); const o = baseOpts();
+  o.scales.y.ticks.callback = v => money(v);
+  o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
+  o.scales.x.ticks.maxTicksLimit = 10;
+  draw("#cHistory", {data:{labels:h.map(x=>x.date.slice(5)), datasets:[
+    {type:"bar", label:"월물 순 GEX", data:h.map(x=>x.net_monthly), backgroundColor:h.map(x=>x.net_monthly>=0?css("--red"):css("--blue")), yAxisID:"y"},
+    {type:"line", label:"현재가", data:h.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2, pointRadius:0, yAxisID:"y2"},
+    {type:"line", label:"감마 전환점", data:h.map(x=>x.flip_monthly), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2"}]}, options:o});
+}
+
+const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
+const cp = c => c==="C" ? `<span class="c">콜</span>` : `<span class="p">풋</span>`;
+
+function tables(s){
+  const hour = s.vh_total != null;
+  $("#topTitle").textContent = hour ? "이번 회차 거래량 상위 계약" : "오늘 누적 거래량 상위 계약";
+  $("#topDesc").textContent = hour ? "직전 회차 대비 늘어난 거래량. 미결제보다 크게 들어온 계약은 오늘 새로 잡힌 포지션일 가능성이 크다"
+                                   : "그날 첫 회차라 누적 거래량 기준";
+  const T = s.top_contracts;
+  $("#tTop").innerHTML = T.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th>${hour?"<th>이번 회차</th>":""}<th>누적</th><th>미결제</th><th>거래/미결제</th><th>IV</th><th>최근가</th></tr>` +
+    T.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td>${hour?`<td><b>${n0(r.vh)}</b></td>`:""}
+      <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.oi ? (r.vol/r.oi).toFixed(1)+"배" : "신규"}</td><td>${r.iv ?? "–"}%</td><td>${r.last ?? "–"}</td></tr>`).join("")
+    : `<tr><td class="empty">이번 회차에 늘어난 거래가 없습니다 (장 마감 후).</td></tr>`;
+  $("#tExp").innerHTML = `<tr><th>만기</th>${hour?"<th>이번 회차</th>":""}<th>누적</th><th>콜 비중</th><th>미결제</th></tr>` +
+    s.top_expiries.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td>${hour?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>
+      <td>${r.call_share==null?"–":Math.round(r.call_share*100)+"%"}</td><td>${n0(r.oi)}</td></tr>`).join("");
+  $("#tStrike").innerHTML = `<tr><th>행사가</th><th>구분</th>${hour?"<th>이번 회차</th>":""}<th>누적</th><th>미결제</th></tr>` +
+    s.top_strikes.map(r => `<tr><td>${r.strike}</td><td>${cp(r.cp)}</td>${hour?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td><td>${n0(r.oi)}</td></tr>`).join("");
+}
+
+init();
+setInterval(() => st.sym && load(st.sym), 10 * 60 * 1000);
+</script>
+</body>
+</html>
