@@ -102,14 +102,16 @@ def implied_spot(df, qt, day, sym):
     야간에는 지수가 계산되지 않아 CBOE 현재가가 전날 종가에 멈춰 있으므로 이 값을 현재가로 쓴다.
     정규장 데이터로 검증하면 실제 가격과 0.1% 안쪽으로 맞는다."""
     d = df[(df["expiry"] > day) & df["expiry"].map(is_monthly)]
+    if sym in AM_ROOTS and "root" in d:   # 셋째 금요일엔 SPX(AM)와 SPXW(PM)가 같이 있어 행사가가 겹친다
+        d = d[d["root"].isin(AM_ROOTS)]
     if d.empty:
         return None
     e = d["expiry"].min()
     m = d[d["expiry"] == e]
     T = (datetime.combine(e, dtime(16, 0), ET) - qt).total_seconds() / (365 * 86400)
     s0 = float(df["spot"].iloc[0])
-    c = m[m["cp"] == "C"].set_index("strike")
-    p = m[m["cp"] == "P"].set_index("strike")
+    c = m[m["cp"] == "C"].drop_duplicates("strike").set_index("strike")
+    p = m[m["cp"] == "P"].drop_duplicates("strike").set_index("strike")
     fs = []
     for k in c.index.intersection(p.index):
         if abs(k / s0 - 1) > 0.04:
