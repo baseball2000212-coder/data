@@ -226,7 +226,7 @@ const SESS_EN = {"정규장":"RTH", "야간":"GTH (overnight)", "개장 전":"Pr
 const IVALS = [1, 5, 15];
 const FLOW_WINS = [["1","1m"],["30","30m"],["60","60m"],["close","Since close"]];
 // day: "live"(오늘) 또는 보관된 날짜, fi: 고른 분 단위 장면 번호(null이면 실시간)
-const st = {sym:null, live:null, hourly:null, bucket:"all", ival:1, flowWin:"1", day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
+const st = {sym:null, live:null, hourly:null, bucket:"all", ival:1, flowWin:"close", day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
             archive:{}, charts:{}, next:POLL};
 
 const fmtM = v => v==null ? "–" : (Math.abs(v)>=1000 ? (v/1000).toFixed(2)+"B" : Math.round(v)+"M");
