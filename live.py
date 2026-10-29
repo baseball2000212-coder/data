@@ -26,8 +26,9 @@ def git(*args, inp=None, env=None):
 
 
 class Live:
-    def __init__(self, fetch):
+    def __init__(self, fetch, syms=None):
         self.fetch = fetch
+        self.syms = syms or SYMS                      # 이번 잡이 갱신할 종목 (야간 잡은 SPX만)
         self.snaps = {s: deque() for s in SYMS}   # (시세 시각, option·volume·quote_et)
         self.last_q = {}
         self.docs = {}
@@ -51,7 +52,7 @@ class Live:
 
     def tick(self):
         changed = False
-        for s in SYMS:
+        for s in self.syms:
             name = s.lstrip("_")
             try:
                 df, ts = self.fetch(s)

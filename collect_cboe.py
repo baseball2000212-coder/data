@@ -8,6 +8,7 @@ CBOE 무료 시세는 15분 늦다. 그래서 목표 시장 시각 + 15분에 �
   python collect_cboe.py eod   → 그날 마감 스냅샷이 빠졌을 때만 1회 (예비용)
   python collect_cboe.py test  → 지금 1회, data/_test 에 저장 (커밋하지 않음)
   python collect_cboe.py live  → SPX·TSLA 실시간 GEX 1회 갱신 (live 브랜치)
+  python collect_cboe.py gth   → SPX 야간 거래(GTH, 20:15~09:15 ET) 동안 1분마다 GEX 갱신 (잡 하나당 최대 5시간 40분)
 PUSH_EACH=1 이면 회차마다 GEX 대시보드(docs/)를 갱신하고 커밋·푸시한다.
 LIVE=1 이면 회차 사이 대기 시간에 SPX·TSLA GEX를 1분마다 갱신한다(live.py).
 GitHub Actions cron은 UTC 고정이지만 목표 시각은 ET로 계산하므로 서머타임은 자동 처리.
@@ -37,6 +38,7 @@ EARLY_SLOTS = {   # 13:00 조기 폐장일
 }
 # 실시간 갱신을 멈추는 시각(ET, 수집 시각). am은 pm 잡이 이어받기 직전까지, pm은 옵션 마감 시세(16:15)를 받을 때까지
 LIVE_END = {"am": (13, 50), "pm": (16, 31)}
+GTH_MAX = timedelta(hours=5, minutes=40)   # 야간 잡 하나의 최대 길이 (GitHub 잡 6시간 제한 안쪽)
 EARLY_LIVE_END = {"am": (13, 31), "pm": (13, 31)}
 
 
@@ -158,6 +160,14 @@ def main():
     if mode == "live":
         from live import Live
         Live(fetch).tick()
+        return
+
+    if mode == "gth":
+        from live import Live
+        end = now + GTH_MAX
+        if now.hour < 12:                                   # 아침 잡은 야간 거래가 끝나는 09:15에서 멈춘다
+            end = min(end, now.replace(hour=9, minute=15, second=0, microsecond=0) + DELAY)
+        Live(fetch, syms=["_SPX"]).run_until(end)
         return
 
     if not is_trading_day(day):
