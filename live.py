@@ -18,7 +18,10 @@ SYMS = ["_SPX", "TSLA"]
 EVERY = 60                       # 초. CBOE 파일이 1분 남짓마다 새로 만들어져서 이보다 줄여도 소용없다
 FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량
 BRANCH = "live"
-SERIES_MAX = 500
+SERIES_MAX = 1500
+FRAME_BAND = gex.FRAME_BAND                 # 분 단위 사다리(지난 시점 보기)에 남기는 행사가: 현재가 ±이 비율
+GTH_FRAME_GAP = timedelta(minutes=5)        # 야간에는 5분마다 한 장만 남긴다
+ARCHIVE = "docs/archive"
 
 
 def chart_bars(sym):
@@ -48,6 +51,7 @@ class Live:
         self.last_q = {}
         self.docs = {}
         self.series = {s: [] for s in SYMS}
+        self.frames = {s.lstrip("_"): {"date": None, "frames": []} for s in SYMS}
         self._restore()
 
     def _restore(self):
@@ -62,6 +66,11 @@ class Live:
                 d = json.loads(git("show", f"FETCH_HEAD:{name}.json"))
                 self.docs[name] = d
                 self.series[s] = d.get("series", [])
+            except Exception:
+                pass
+            try:
+                f = json.loads(git("show", f"FETCH_HEAD:{name}_frames.json"))
+                self.frames[name] = {"date": f.get("date"), "frames": f.get("frames", [])}
             except Exception:
                 pass
 
@@ -99,6 +108,7 @@ class Live:
                 except Exception as e:
                     print(f"[live] {name} 1분봉 실패: {e}", file=sys.stderr, flush=True)
                     bars = (self.docs.get(name) or {}).get("bars") or []
+                self.add_frame(name, day, qt, m)
                 self.docs[name] = {"symbol": name, "gex": name not in gex.NO_GEX, "open": opening, "bars": bars,
                                    "updated_kst": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
                                    "cboe_ts_et": ts.astimezone(ET).strftime("%Y-%m-%d %H:%M:%S"),
@@ -111,14 +121,67 @@ class Live:
         if changed:
             self.push()
 
+    def add_frame(self, name, day, qt, m):
+        """그 분의 행사가별 순 GEX(현재가 근처)와 요약을 한 장으로 남긴다 → 화면에서 지난 시점을 고를 수 있다."""
+        fr = self.frames[name]
+        if fr["date"] != str(day):
+            fr.update(date=str(day), frames=[])
+        if m.get("gex") is False or not m.get("strikes"):
+            return
+        if m.get("session") == "야간" and fr["frames"] and fr["frames"][-1].get("sess") == "야간":
+            last = datetime.strptime(fr["frames"][-1]["q"], "%Y-%m-%d %H:%M").replace(tzinfo=ET)
+            if qt - last < GTH_FRAME_GAP:
+                return
+        fr["frames"] = [f for f in fr["frames"] if f["q"] != qt.strftime("%Y-%m-%d %H:%M")]
+        fr["frames"].append(gex.frame_of(m, qt, FRAME_BAND.get(name, 0.05)))
+
+    def frames_doc(self, name):
+        fr = self.frames[name]
+        return {"symbol": name, "date": fr["date"], "bars": (self.docs.get(name) or {}).get("bars") or [],
+                "frames": fr["frames"]}
+
+    def archive(self):
+        """그날 분 단위 기록을 main 의 docs/archive/<종목>/<날짜>.json 으로 남긴다(장 마감 후 pm 잡이 호출)."""
+        os.makedirs(ARCHIVE, exist_ok=True)
+        idx_path = os.path.join(ARCHIVE, "index.json")
+        try:
+            idx = json.load(open(idx_path, encoding="utf-8"))
+        except Exception:
+            idx = {}
+        for name, fr in self.frames.items():
+            if not fr["date"] or not fr["frames"]:
+                continue
+            doc = self.frames_doc(name)
+            try:   # 매시 스냅샷(거래량 표·프로파일용)도 같이 묶는다
+                h = json.load(open(f"docs/gex/{name}.json", encoding="utf-8"))
+                if h.get("date") == fr["date"]:
+                    doc["slots"] = h.get("slots", [])
+            except Exception:
+                pass
+            os.makedirs(os.path.join(ARCHIVE, name), exist_ok=True)
+            path = os.path.join(ARCHIVE, name, f"{fr['date']}.json")
+            try:   # 매시판 보관본이 더 촘촘하면(잡이 늦게 떠서 분 단위가 적은 날) 그대로 둔다
+                if len(json.load(open(path, encoding="utf-8")).get("frames", [])) > len(fr["frames"]):
+                    continue
+            except Exception:
+                pass
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh, ensure_ascii=False, separators=(",", ":"))
+            idx[name] = sorted(set(idx.get(name, [])) | {fr["date"]})
+            print(f"[archive] {name} {fr['date']} 분 단위 {len(fr['frames'])}장", flush=True)
+        with open(idx_path, "w", encoding="utf-8") as fh:
+            json.dump(idx, fh, ensure_ascii=False, separators=(",", ":"))
+
     def push(self):
         """docs 를 부모 없는 커밋 하나로 만들어 live 브랜치에 덮어쓴다."""
         try:
             env = dict(os.environ, GIT_INDEX_FILE=os.path.join(git("rev-parse", "--git-dir"), "live.idx"))
             git("read-tree", "--empty", env=env)
-            for name, doc in self.docs.items():
+            files = {f"{n}.json": d for n, d in self.docs.items()}
+            files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"]})
+            for path, doc in files.items():
                 blob = git("hash-object", "-w", "--stdin", inp=json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
-                git("update-index", "--add", "--cacheinfo", f"100644,{blob},{name}.json", env=env)
+                git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env)
             tree = git("write-tree", env=env)
             commit = git("commit-tree", tree, "-m", f"live {datetime.now(ET):%Y-%m-%d %H:%M} ET")
             git("push", "-q", "-f", "origin", f"{commit}:refs/heads/{BRANCH}")
