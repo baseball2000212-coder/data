@@ -10,7 +10,9 @@ GEX(현재가 1% 변동당 달러) = 감마 × 미결제약정 × 100 × 현재�
 미결제약정(OI)은 전일 장 마감 기준이고 장중에 바뀌지 않는다(OCC가 밤사이 갱신). 장중 GEX 변화는
 포지션 변화가 아니라 가격·변동성 변화 때문이고, 오늘 새로 생긴 포지션은 회차별 거래량 증가분으로 본다.
 만기 구분: monthly = 셋째 금요일 월물(휴장이면 앞당김. SPX는 AM 정산 월물 루트 `SPX`, 위클리는 `SPXW`),
-0dte = 오늘 만기 비월물, weekly = 나머지.
+0dte = 오늘 만기, weekly = 월물이 아닌 나머지, all(대시보드 기본값) = 오늘 만기를 뺀 전 만기.
+전일 OI가 다 잡히는 위클리(SPXW)·월말물에 감마가 많이 쌓여 있어 월물만 보면 전체의 일부만 보게 된다.
+그릭스·IV는 CBOE가 준 값을 그대로 쓴다(중간가 기준. 중간가로 역산한 IV와 평균 0.2%p 이내로 맞는다).
 대시보드는 DASH 종목(SPX·TSLA)만 만든다. 다른 종목은 원자료만 쌓는다.
 """
 import os, re, sys, glob, json
@@ -229,9 +231,14 @@ def metrics(df, day, prev, sym, tag):
     sign = np.where(df["is_call"], 1.0, -1.0)
     unit = 100 * spot ** 2 * 0.01
     df["gex"] = sign * df["gamma"].fillna(0) * oi * unit
+    # 만기 묶음. all(기본) = 오늘 만기를 뺀 전 만기: 전일 OI가 다 잡히는 위클리·월물·월말물이 모두 들어간다.
+    # 0dte = 오늘 만기(오늘 새로 연 포지션은 OI에 없다). monthly = 월물만, weekly = 월물이 아닌 나머지
+    def pick(d, b):
+        return {"monthly": d["bucket"] == "monthly", "weekly": d["bucket"] == "weekly",
+                "0dte": d["expiry"] == day, "all": d["expiry"] != day}[b]
     tot = {}
     for b in ("monthly", "weekly", "0dte", "all"):
-        s = df if b == "all" else df[df["bucket"] == b]
+        s = df[pick(df, b)]
         c, p = s.loc[s["is_call"], "gex"].sum(), s.loc[~s["is_call"], "gex"].sum()
         tot[b] = {"call": _m(c), "put": _m(p), "net": _m(c + p)}
     out["total"] = tot
@@ -240,18 +247,21 @@ def metrics(df, day, prev, sym, tag):
     band = df[(df["strike"] >= spot * (1 - bw)) & (df["strike"] <= spot * (1 + bw))]
     out["strikes"] = {}
     for b in ("monthly", "0dte", "all"):
-        s = band if b == "all" else band[band["bucket"] == b]
+        s = band[pick(band, b)]
         if s.empty:
             out["strikes"][b] = {"k": [], "c": [], "p": []}
             continue
         g = s.pivot_table(index="strike", columns="cp", values="gex", aggfunc="sum").fillna(0)
         g = g.reindex(columns=["C", "P"], fill_value=0)
         out["strikes"][b] = {"k": [float(k) for k in g.index], "c": [_m(v, 2) for v in g["C"]], "p": [_m(v, 2) for v in g["P"]]}
-    # 콜월·풋월: 월물 행사가별 순GEX가 가장 큰(+)·작은(−) 행사가. 같은 행사가에 콜·풋 미결제가 짝으로 쌓인
+    # 콜월·풋월: 만기 묶음별 행사가 순GEX가 가장 큰(+)·작은(−) 행사가. 같은 행사가에 콜·풋 미결제가 짝으로 쌓인
     # 박스·컨버전 포지션(SPX 7000·8000 같은 정수 행사가)은 순GEX로 보면 서로 상쇄된다
-    net = df[df["bucket"] == "monthly"].groupby("strike")["gex"].sum()
-    out["call_wall"] = float(net.idxmax()) if len(net) and net.max() > 0 else None
-    out["put_wall"] = float(net.idxmin()) if len(net) and net.min() < 0 else None
+    out["walls"] = {}
+    for b in ("all", "monthly", "0dte"):
+        net = df[pick(df, b)].groupby("strike")["gex"].sum()
+        out["walls"][b] = [float(net.idxmax()) if len(net) and net.max() > 0 else None,
+                           float(net.idxmin()) if len(net) and net.min() < 0 else None]
+    out["call_wall"], out["put_wall"] = out["walls"]["all"]
 
     # 감마 프로파일: 가격이 S로 움직이면 순GEX가 어떻게 되나 (BS 감마 재계산, IV·OI 고정)
     v = df[(oi > 0) & (df["iv"] > 0.01) & (df["iv"] < 5)].copy()
@@ -259,7 +269,7 @@ def metrics(df, day, prev, sym, tag):
     S = (spot * GRID)[:, None]
     prof = {}
     for b in ("monthly", "all"):
-        s = v if b == "all" else v[v["bucket"] == "monthly"]
+        s = v[pick(v, b)]
         if not len(s):
             prof[b] = None
             continue
@@ -294,7 +304,7 @@ def frame_of(m, qt, band):
     return {"t": m["quote_et"], "q": qt.strftime("%Y-%m-%d %H:%M"), "sess": m.get("session"), "s": spot,
             "n": [(t.get(b) or {}).get("net") for b in ("monthly", "all", "0dte")],
             "f": [(m.get("flip") or {}).get(b) for b in ("monthly", "all")],
-            "w": [m.get("call_wall"), m.get("put_wall")],
+            "w": [w for b in ("all", "monthly", "0dte") for w in ((m.get("walls") or {}).get(b) or [None, None])],
             "k": ks, "m": nets("monthly"), "a": nets("all"), "z": nets("0dte")}
 
 
@@ -408,8 +418,9 @@ def write_index(out_dir):
         d = json.load(open(p, encoding="utf-8"))
         last = d["slots"][-1] if d["slots"] else {}
         items.append({"symbol": d["symbol"], "date": d["date"], "gex": d["gex"], "quote_et": last.get("quote_et"),
-                      "spot": last.get("spot"), "net_monthly": ((last.get("total") or {}).get("monthly") or {}).get("net"),
-                      "flip": (last.get("flip") or {}).get("monthly")})
+                      "spot": last.get("spot"), "net_all": ((last.get("total") or {}).get("all") or {}).get("net"),
+                      "net_monthly": ((last.get("total") or {}).get("monthly") or {}).get("net"),
+                      "flip": (last.get("flip") or {}).get("all"), "flip_monthly": (last.get("flip") or {}).get("monthly")})
     items = [x for x in items if x["symbol"] in DASH]
     items.sort(key=lambda x: DASH.index(x["symbol"]))
     with open(f"{out_dir}/index.json", "w", encoding="utf-8") as fh:
@@ -428,9 +439,9 @@ def build_day(day, data_dir="data", out_dir="docs/gex", verbose=False, strict=Tr
         write_archive(sym, day, slots, out_dir=os.path.join(os.path.dirname(out_dir), "archive"))
         if verbose:
             s = slots[-1]
-            t = (s.get("total") or {}).get("monthly")
-            print(f"[gex] {sym} {s['tag']} 시세 {s['quote_et']} ET spot {s['spot']} 월물 순GEX {t and t['net']}M "
-                  f"flip {(s.get('flip') or {}).get('monthly')} 콜월 {s.get('call_wall')} 풋월 {s.get('put_wall')} "
+            t = (s.get("total") or {}).get("all")
+            print(f"[gex] {sym} {s['tag']} 시세 {s['quote_et']} ET spot {s['spot']} 순GEX(오늘 만기 제외) {t and t['net']}M "
+                  f"flip {(s.get('flip') or {}).get('all')} 콜월 {s.get('call_wall')} 풋월 {s.get('put_wall')} "
                   f"P/C {s.get('pc_vol')} 누적상위 {s['top_volume'][:1]}", flush=True)
     write_index(out_dir)
 

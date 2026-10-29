@@ -98,7 +98,8 @@ class Live:
                 ser = [x for x in self.series[s] if x.get("date") == str(day) and x.get("t") != m["quote_et"]]
                 ser.append({"date": str(day), "t": m["quote_et"], "spot": m["spot"],
                             "net_m": (t.get("monthly") or {}).get("net"), "net_all": (t.get("all") or {}).get("net"),
-                            "flip_m": (m.get("flip") or {}).get("monthly"), "vol": m.get("vol_total")})
+                            "flip_m": (m.get("flip") or {}).get("monthly"), "flip_all": (m.get("flip") or {}).get("all"),
+                            "vol": m.get("vol_total")})
                 self.series[s] = ser[-SERIES_MAX:]
                 opening = (self.docs.get(name) or {}).get("open")
                 if not opening or opening.get("date") != str(day):   # 그날 첫 계산 = 비교 기준(점)
@@ -115,7 +116,7 @@ class Live:
                                    "live": m, "series": self.series[s]}
                 changed = True
                 print(f"[live] {name} 시세 {m['quote_et']} ET spot {m['spot']} "
-                      f"월물 순GEX {(t.get('monthly') or {}).get('net')}M 유입창 {m.get('flow_min')}분", flush=True)
+                      f"순GEX(오늘 만기 제외) {(t.get('all') or {}).get('net')}M 유입창 {m.get('flow_min')}분", flush=True)
             except Exception as e:
                 print(f"[live FAIL] {name}: {e}", file=sys.stderr, flush=True)
         if changed:
