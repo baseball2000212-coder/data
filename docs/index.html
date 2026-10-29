@@ -216,7 +216,7 @@ const alpha = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.
 const BUCKETS = [["monthly","Monthly"],["all","All"],["0dte","0DTE"]];
 const BUCKET_KO = {monthly:"Monthly", weekly:"Weekly", "0dte":"0DTE", all:"All"};
 const SESS_EN = {"정규장":"RTH", "야간":"GTH (overnight)", "개장 전":"Pre-market", "장 마감 후":"After hours"};
-const IVALS = [1, 2, 5, 15];
+const IVALS = [1, 5, 15];
 // day: "live"(오늘) 또는 보관된 날짜, fi: 고른 분 단위 장면 번호(null이면 실시간)
 const st = {sym:null, live:null, hourly:null, bucket:"monthly", ival:1, day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
             archive:{}, charts:{}, next:POLL};
@@ -292,7 +292,7 @@ const BAR_INFO = {
     "<b style='display:inline;font-size:14px'>0DTE</b>: 그날 만기되는 옵션만 본다. 하루짜리라 딜러가 헤지보다 포지션 정리로 대응할 수 있어 참고용이다. 당일 만기가 없는 날은 비어 있다",
     "바꾸면 KPI(Net GEX·Gamma Flip·Call/Put Wall), GEX by Strike, Gamma Profile, SpotGammaFlow 오른쪽 막대가 함께 바뀐다. 거래량 표는 만기 필터와 무관하다"]},
   ival: {title:"Candle Interval", lines:[
-    "SpotGammaFlow 가격 봉의 간격이다. 1분봉을 2·5·15분씩 묶어서 그린다",
+    "SpotGammaFlow 가격 봉의 간격이다. 1분봉을 5분·15분씩 묶어서 그린다",
     "초록은 양봉(종가 ≥ 시가), 빨강은 음봉이다. 봉에 마우스를 올리면 시·고·저·종가가 뜬다",
     "지난 날 TSLA 중 한 달이 넘은 날은 원본이 2분·5분봉이라 그보다 잘게는 안 나뉜다",
     "SPX 야간(GTH)에는 지수가 멈춰 있어 옵션 가격으로 역산한 지수로 봉을 만든다"]}
