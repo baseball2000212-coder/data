@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>옵션 감마 대시보드</title>
+<title>Options Gamma Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -12,19 +12,19 @@
   --bg:#FFFFFF; --ink:#222222; --sub:#45515E; --mute:#8E8E93; --faint:#A9AEB8;
   --line:#ECEEF2; --line2:#F0F2F5; --panel:#F5F7FA; --tint:#EFF4FF;
   --blue:#1456F0; --navy:#17437D; --red:#E5383B; --orange:#E8590C; --pink:#C2389E; --pinkbg:#FDF2FA;
-  --green:#12A150; --card:#FFFFFF; --shadow:0 4px 18px rgba(20,40,90,.06);
+  --green:#12A150; --cup:#12A150; --cdn:#E5383B; --card:#FFFFFF; --shadow:0 4px 18px rgba(20,40,90,.06);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
     --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
-    --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --shadow:none;
+    --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --cup:#4FB286; --cdn:#E05F65; --shadow:none;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
   --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
-  --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --shadow:none;
+  --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --cup:#4FB286; --cdn:#E05F65; --shadow:none;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans KR",system-ui,sans-serif;
@@ -94,6 +94,13 @@ th:first-child,td:first-child{text-align:left}
   font-size:13.5px;color:var(--sub);line-height:1.7}
 .note b{color:var(--ink)}
 .hide{display:none!important}
+.ttip{position:fixed;z-index:45;pointer-events:none;opacity:0;background:#000;color:#fff;border-radius:6px;padding:10px 14px;min-width:190px;
+  font:500 15px "Noto Sans KR",system-ui;box-shadow:0 6px 24px rgba(0,0,0,.5);transition:opacity .08s}
+.ttip .h{font-weight:800;margin-bottom:4px}
+.ttip .r{display:flex;justify-content:space-between;gap:20px;line-height:1.5}
+.ttip .r b{font-weight:800}
+.ttip .r.m{font-size:12px;color:#A9AEB8;margin-top:4px}
+.up{color:var(--cup)}.dn{color:var(--cdn)}
 .tag{display:inline-block;font-size:12px;font-weight:700;color:var(--orange);border:1.5px solid var(--orange);border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:2px}
 .tag:empty{display:none}
 .card .d{display:none}
@@ -112,9 +119,9 @@ th:first-child,td:first-child{text-align:left}
 <body>
 <div class="wrap">
   <header>
-    <h1>옵션 감마 대시보드</h1>
-    <p>SPX·TSLA 옵션의 딜러 감마 노출(GEX) · 월물 만기 기준 · 1분 갱신 (CBOE 시세 15분 지연)</p>
-    <div class="meta"><span id="meta">불러오는 중…</span><span id="tick"></span></div>
+    <h1>Options Gamma Dashboard</h1>
+    <p>SPX · TSLA dealer gamma exposure (GEX) · Monthly expiries · 60s refresh · Cboe data delayed 15 min</p>
+    <div class="meta"><span id="meta">Loading…</span><span id="tick"></span></div>
   </header>
 
   <div class="tabs" id="tabs"></div>
@@ -122,7 +129,7 @@ th:first-child,td:first-child{text-align:left}
   <div class="bar" id="bar">
     <div class="grp"><button class="nav" id="dPrev" aria-label="이전 날짜">‹</button><select id="dSel" aria-label="날짜"></select><button class="nav" id="dNext" aria-label="다음 날짜">›</button></div>
     <div class="grp"><button class="nav" id="tPrev" aria-label="이전 시각">‹</button><select id="tSel" aria-label="시각"></select><button class="nav" id="tNext" aria-label="다음 시각">›</button><span class="unit">ET</span></div>
-    <button class="chip live" id="liveBtn">● 실시간</button>
+    <button class="chip live" id="liveBtn">● LIVE</button>
     <div class="seg" id="buckets" aria-label="만기"></div>
     <div class="seg" id="ivals" aria-label="봉"></div>
   </div>
@@ -131,55 +138,55 @@ th:first-child,td:first-child{text-align:left}
 
   <div id="gexArea">
     <div class="card">
-      <h2>가격 · 감마 지도</h2>
+      <h2>SpotGammaFlow</h2>
       <p class="d" id="pgDesc">왼쪽은 오늘 가격(1분봉), 오른쪽은 같은 가격 축의 행사가별 순 GEX(+ 빨강, − 파랑). 점은 오늘 첫 계산 때의 순 GEX</p>
       <div class="pg"><div class="l"><canvas id="cPrice"></canvas></div><div class="r"><canvas id="cLadder"></canvas></div></div>
     </div>
     <div class="card">
-      <h2>행사가별 감마 노출</h2>
+      <h2>GEX by Strike</h2>
       <p class="d">현재가 1% 변동당 딜러 헤지 금액(백만 달러). 콜 +, 풋 −</p>
       <div class="chart"><canvas id="cStrike"></canvas></div>
     </div>
     <div class="grid2">
       <div class="card">
-        <h2>가격별 감마 프로파일 <span id="flipTag" class="tag"></span></h2>
+        <h2>Gamma Profile <span id="flipTag" class="tag"></span></h2>
         <p class="d">가격이 움직이면 순 GEX가 어떻게 바뀌나 · 빨간 면은 양(+) 감마 구간, 파란 면은 음(−) 감마 구간 · 주황 점선이 감마 플립(순 GEX가 0이 되는 가격)</p>
         <div class="chart sm"><canvas id="cProfile"></canvas></div>
       </div>
       <div class="card">
-        <h2>오늘 추이</h2>
+        <h2>Intraday</h2>
         <p class="d" id="intraDesc">월물 순 GEX와 현재가. 미결제약정은 장중 고정이라 변화는 가격·변동성 때문</p>
         <div class="chart sm"><canvas id="cIntraday"></canvas></div>
       </div>
     </div>
     <div class="card">
-      <h2>일별 추이 (마감 기준)</h2>
+      <h2>Daily (Close)</h2>
       <p class="d">월물 순 GEX, 현재가, 감마 전환점 · 최근 90거래일</p>
       <div class="chart sm" id="histBox"><canvas id="cHistory"></canvas></div>
-      <p class="empty hide" id="histEmpty">일별 추이는 매시 스냅샷이 하루 이상 쌓이면 나타납니다.</p>
+      <p class="empty hide" id="histEmpty">Daily history appears after a full day of snapshots.</p>
     </div>
   </div>
 
   <div class="grid2">
     <div class="card">
-      <h2>거래량 상위 (오늘 누적)</h2>
+      <h2>Top Volume (Today)</h2>
       <p class="d">장 시작부터 지금까지 가장 많이 거래된 계약</p>
       <div class="tbl"><table id="tVol"></table></div>
     </div>
     <div class="card">
-      <h2 id="flowTitle">유입 상위 (flow)</h2>
+      <h2 id="flowTitle">Top Flow</h2>
       <p class="d" id="flowDesc">최근 몇 분 동안 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다</p>
       <div class="tbl"><table id="tFlow"></table></div>
     </div>
   </div>
   <div class="grid2">
     <div class="card">
-      <h2>만기별 거래량</h2>
+      <h2>Volume by Expiry</h2>
       <p class="d">유입이 많은 순. 콜 비중이 높을수록 콜 쪽 거래</p>
       <div class="tbl"><table id="tExp"></table></div>
     </div>
     <div class="card">
-      <h2>행사가별 거래량</h2>
+      <h2>Volume by Strike</h2>
       <p class="d">만기를 합친 행사가·콜풋별 거래량, 유입이 많은 순</p>
       <div class="tbl"><table id="tStrike"></table></div>
     </div>
@@ -198,12 +205,13 @@ th:first-child,td:first-child{text-align:left}
 const RAW = "https://raw.githubusercontent.com/baseball2000212-coder/data";
 const API = "https://api.github.com/repos/baseball2000212-coder/data/contents";
 const SYMS = ["SPX", "TSLA"];
-const POLL = 65;   // GitHub API 무인증 한도(시간당 60회) 안쪽. 바뀌지 않은 파일은 304라 한도에 안 잡힌다
+const POLL = 60;   // GitHub API 무인증 한도(공인 IP당 시간당 60회). 넘으면 raw(최대 5분 지연)로 대신한다
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const alpha = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.round(a*255).toString(16).padStart(2,"0") : c; };
-const BUCKETS = [["monthly","월물"],["all","전체"],["0dte","0DTE"]];
-const BUCKET_KO = {monthly:"월물", weekly:"위클리", "0dte":"0DTE", all:"전체 만기"};
+const BUCKETS = [["monthly","Monthly"],["all","All"],["0dte","0DTE"]];
+const BUCKET_KO = {monthly:"Monthly", weekly:"Weekly", "0dte":"0DTE", all:"All"};
+const SESS_EN = {"정규장":"RTH", "야간":"GTH (overnight)", "개장 전":"Pre-market", "장 마감 후":"After hours"};
 const IVALS = [1, 2, 5, 15];
 // day: "live"(오늘) 또는 보관된 날짜, fi: 고른 분 단위 장면 번호(null이면 실시간)
 const st = {sym:null, live:null, hourly:null, bucket:"monthly", ival:1, day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
@@ -298,7 +306,7 @@ function init(){
   $("#tabs").onclick = e => { const b = e.target.closest(".tab"); if (b) load(b.dataset.s); };
   $("#buckets").innerHTML = BUCKETS.map(([k,l]) => `<button data-b="${k}">${l}</button>`).join("");
   $("#buckets").onclick = e => { const b = e.target.closest("button"); if (b){ st.bucket = b.dataset.b; render(); } };
-  $("#ivals").innerHTML = IVALS.map(m => `<button data-m="${m}">${m}분</button>`).join("");
+  $("#ivals").innerHTML = IVALS.map(m => `<button data-m="${m}">${m}m</button>`).join("");
   $("#ivals").onclick = e => { const b = e.target.closest("button"); if (b){ st.ival = +b.dataset.m; render(); } };
   $("#dSel").onchange = () => pickDay($("#dSel").value);
   $("#dPrev").onclick = () => stepDay(1);
@@ -312,7 +320,7 @@ function init(){
   let saved = null; try { saved = localStorage.getItem("gex.sym"); } catch(e){}
   getJSON(`${RAW}/main/docs/archive/index.json`).then(x => { if (x){ st.archive = x; render(); } });
   load(SYMS.includes(saved) ? saved : SYMS[0]);
-  setInterval(() => { st.next -= 1; if (st.next <= 0){ st.next = POLL; refresh(); } $("#tick").textContent = `다음 갱신 ${st.next}초`; }, 1000);
+  setInterval(() => { st.next -= 1; if (st.next <= 0){ st.next = POLL; refresh(); } $("#tick").textContent = `Next ${st.next}s`; }, 1000);
 }
 
 async function load(sym){
@@ -375,7 +383,7 @@ function frameSlot(fi){
     quote_kst:kstOf(f.q), spot:f.s, gex:true, total:{monthly:{net:f.n[0]}, all:{net:f.n[1]}, "0dte":{net:f.n[2]}},
     flip:{monthly:f.f[0], all:f.f[1]}, call_wall:f.w[0], put_wall:f.w[1],
     strikes:{monthly:split(f.m), all:split(f.a), "0dte":split(f.z)},
-    spot_note: f.sess === "야간" ? "야간: 현재가는 옵션 가격으로 역산한 지수" : null};
+    spot_note: f.sess === "야간" ? "야간: 현재가는 옵션 가격으로 역산한 지수" : null, prev_close: base.prev_close || null};
 }
 function current(){
   if (st.fi != null && st.fdoc?.frames?.[st.fi]) return frameSlot(st.fi);
@@ -385,11 +393,11 @@ const bk = s => (s.strikes?.[st.bucket]?.k?.length ? st.bucket : "all");
 
 function controls(){
   const L = st.live, today = L?.live?.date;
-  $("#dSel").innerHTML = dayOptions().map(d => `<option value="${d}">${d === "live" ? `오늘${today ? " " + today.slice(5) : ""} · 실시간` : d}</option>`).join("");
+  $("#dSel").innerHTML = dayOptions().map(d => `<option value="${d}">${d === "live" ? `Today${today ? " " + today.slice(5) : ""} · LIVE` : d}</option>`).join("");
   $("#dSel").value = st.day;
   const fr = st.fdoc?.frames || [];
-  let opts = fr.map((f,i) => `<option value="${i}">${f.sess === "야간" ? "야간 " : ""}${f.t}</option>`);
-  if (st.day === "live") opts.push(`<option value="live">실시간${L?.live ? " " + L.live.quote_et : ""}</option>`);
+  let opts = fr.map((f,i) => `<option value="${i}">${f.sess === "야간" ? "GTH " : ""}${f.t}</option>`);
+  if (st.day === "live") opts.push(`<option value="live">LIVE${L?.live ? " " + L.live.quote_et : ""}</option>`);
   $("#tSel").innerHTML = opts.join("") || `<option>–</option>`;
   $("#tSel").value = st.fi == null ? "live" : String(st.fi);
   $("#liveBtn").classList.toggle("on", st.day === "live" && st.fi == null);
@@ -401,14 +409,14 @@ function render(){
   const s = current(), L = st.live, H = st.hourly;
   if (L?.live) $(`#px-${st.sym}`).textContent = L.live.spot;
   controls();
-  if (!s){ $("#meta").textContent = st.day === "live" ? "데이터를 기다리는 중입니다." : "이 날짜의 기록을 불러오는 중입니다."; return; }
+  if (!s){ $("#meta").textContent = st.day === "live" ? "Waiting for data." : "Loading this date…"; return; }
   const isLive = st.day === "live" && st.fi == null;
   const qd = s.quote_date_et && s.quote_date_et !== s.date ? s.quote_date_et.slice(5).replace("-","/") + " " : "";
-  $("#meta").innerHTML = `<span><span class="dot ${isLive && fresh(L) ? "on" : ""}"></span>${st.sym} · ${s.date || H?.date || ""} 세션${s.session ? " (" + s.session + ")" : ""}</span>` +
-    `<span>시세 ${qd}${s.quote_et} ET · KST ${s.quote_kst}</span>` +
-    (isLive ? `<span>계산 ${L.updated_kst.slice(11)} KST</span>` : `<span style="color:var(--orange)">지난 시점 보기${s.base_t ? ` · 표·프로파일은 ${s.base_t} 매시 스냅샷` : ""}</span>`) +
-    (s.spot_note ? `<span>${s.spot_note}</span>` : "") +
-    (isLive && st.slow ? `<span style="color:var(--orange)">접속이 많아 갱신이 최대 5분 늦을 수 있음</span>` : "");
+  $("#meta").innerHTML = `<span><span class="dot ${isLive && fresh(L) ? "on" : ""}"></span>${st.sym} · ${s.date || H?.date || ""}${s.session ? " · " + (SESS_EN[s.session] || s.session) : ""}</span>` +
+    `<span>Quote ${qd}${s.quote_et} ET · KST ${s.quote_kst}</span>` +
+    (isLive ? `<span>Updated ${L.updated_kst.slice(11)} KST</span>` : `<span style="color:var(--orange)">Replay${s.base_t ? ` · tables/profile from ${s.base_t} snapshot` : ""}</span>`) +
+    (s.spot_close || s.session === "야간" ? `<span>Implied spot</span>` : "") +
+    (isLive && st.slow ? `<span style="color:var(--orange)">Busy: updates may lag up to 5 min</span>` : "");
   const gx = s.gex !== false && s.total;
   $("#gexArea").classList.toggle("hide", !gx);
   kpis(s, gx);
@@ -419,25 +427,50 @@ function fresh(L){ if (!L?.updated_kst) return false; const t = new Date(L.updat
 
 function kpis(s, gx){
   const b = st.bucket, t = gx ? s.total[b] : null, flip = gx ? s.flip?.[b] : null;
-  const items = [["현재가", s.spot, `시세 ${s.quote_et} ET`, "", s.spot_note ? [s.spot_note] : ["CBOE 지연 시세(15분) 기준 가격"]]];
+  const chg = s.prev_close ? (s.spot / s.prev_close - 1) * 100 : null;
+  const spotInfo = ["Cboe 지연 시세(15분) 기준 가격", ...(s.prev_close ? [`전일 종가 ${s.prev_close} 대비 등락률`] : []), ...(s.spot_note ? [s.spot_note] : [])];
+  const items = [["Spot", s.spot, chg == null ? `${s.quote_et} ET` : `<span class="${chg>=0?"up":"dn"}">${chg>=0?"+":""}${chg.toFixed(2)}%</span> · ${s.quote_et} ET`, "", spotInfo]];
   if (gx){
-    items.push([`순 GEX · ${b==="monthly"?"월물":"전체"}`, money(t.net), t.net>=0 ? "양(+) 감마" : "음(−) 감마", sgn(t.net),
+    items.push(["Net GEX", money(t.net), `${BUCKET_KO[b]} · ${t.net>=0 ? "Positive" : "Negative"} gamma`, sgn(t.net),
       ["현재가가 1% 움직일 때 딜러가 헤지로 사고팔아야 하는 금액", "양(+)이면 오르면 팔고 내리면 사서 변동을 줄이는 쪽", "음(−)이면 같은 방향으로 따라 매매해 변동을 키우는 쪽", "딜러가 콜은 매수·풋은 매도한 상태라는 통상 가정"]]);
-    items.push(["감마 플립", flip ?? "–", flip ? (s.spot>=flip ? `현재가가 ${(s.spot-flip).toFixed(1)} 위` : `현재가가 ${(flip-s.spot).toFixed(1)} 아래`) : "범위 안에 없음", "",
+    items.push(["Gamma Flip", flip ?? "–", flip ? (s.spot>=flip ? `Spot ${(s.spot-flip).toFixed(1)} above` : `Spot ${(flip-s.spot).toFixed(1)} below`) : "Out of range", "",
       ["가격이 움직일 때 순 GEX가 0이 되는 가격", "이 위에서는 양(+) 감마, 아래에서는 음(−) 감마", "현재가가 플립 아래로 내려가면 변동이 커지기 쉽다는 관점이 있지만 참고 지표"]]);
-    items.push(["콜월 (월물)", s.call_wall ?? "–", "순 GEX 최대 행사가", "pos",
+    items.push(["Call Wall", s.call_wall ?? "–", "Max net GEX strike", "pos",
       ["월물 행사가별 순 GEX가 가장 큰 행사가", "주가 상승을 막는 저항처럼 보는 관점이 있지만 참고 지표", "콜·풋이 짝으로 쌓인 박스 포지션은 서로 상쇄돼 빠진다"]]);
-    items.push(["풋월 (월물)", s.put_wall ?? "–", "순 GEX 최소 행사가", "neg",
+    items.push(["Put Wall", s.put_wall ?? "–", "Min net GEX strike", "neg",
       ["월물 행사가별 순 GEX가 가장 작은(음수가 가장 큰) 행사가", "주가 하락을 받치는 지지처럼 보는 관점이 있지만 참고 지표"]]);
-  } else if (s.gex_note){ items.push(["GEX", "–", s.gex_note, ""]); }
-  if (s.atm_iv) items.push(["ATM IV", s.atm_iv.iv+"%", `${s.atm_iv.expiry.slice(5)} 월물 ${s.atm_iv.strike}`, "", ["가장 가까운 월물에서 현재가에 가장 가까운 행사가의 내재변동성(콜·풋 평균)"]]);
-  items.push(["P/C 거래량", s.pc_vol ?? "–", `미결제 P/C ${s.pc_oi ?? "–"}`, "", ["오늘 풋 거래량 ÷ 콜 거래량", "1보다 크면 풋 거래가 더 많다", "미결제 P/C는 전일 마감 기준"]]);
+  } else if (s.gex_note){ items.push(["GEX", "–", "No greeks yet", "", [s.gex_note]]); }
+  if (s.atm_iv) items.push(["ATM IV", s.atm_iv.iv+"%", `${s.atm_iv.expiry.slice(5)} monthly · ${s.atm_iv.strike}`, "", ["가장 가까운 월물에서 현재가에 가장 가까운 행사가의 내재변동성(콜·풋 평균)"]]);
+  items.push(["P/C Volume", s.pc_vol ?? "–", `OI P/C ${s.pc_oi ?? "–"}`, "", ["오늘 풋 거래량 ÷ 콜 거래량", "1보다 크면 풋 거래가 더 많다", "미결제 P/C는 전일 마감 기준"]]);
   KPI_INFO = {};
   $("#kpis").innerHTML = items.map(([l,v,sub,c,info],i) => { if (info) KPI_INFO[i] = {title:l, lines:info};
     return `<div class="kpi"><div class="l">${l}${info ? `<button class="info" data-k="${i}" aria-label="설명">i</button>` : ""}</div><div class="v ${c}">${v}</div><div class="s">${sub}</div></div>`; }).join("");
 }
 
 const PAD = {SPX: 0.006, TSLA: 0.025};
+const ampm = t => { const [h, m] = t.replace(/^\D+/, "").split(":").map(Number); return `${(h % 12) || 12}:${String(m).padStart(2,"0")} ${h < 12 ? "AM" : "PM"}`; };
+// 캔들에 올리면 뜨는 상자: 시각 · 종목 등락률(전일 종가 대비) · 시가·고가·저가·종가 · 분당 옵션 거래량
+function ohlcTip(cs, prev, sym){
+  return ctx => {
+    let el = document.getElementById("ttip");
+    if (!el){ el = document.createElement("div"); el.id = "ttip"; el.className = "ttip"; document.body.appendChild(el); }
+    const t = ctx.tooltip;
+    if (!t.opacity || !t.dataPoints?.length){ el.style.opacity = 0; return; }
+    const c = cs[t.dataPoints[0].dataIndex]; if (!c){ el.style.opacity = 0; return; }
+    const pct = prev ? (c.c / prev - 1) * 100 : null, f = v => Number(v).toFixed(2);
+    el.innerHTML = `<div class="h">${ampm(c.t)} ET</div>` +
+      (pct == null ? "" : `<div class="r"><span>${sym}</span><span class="${pct>=0?"up":"dn"}">${pct>=0?"+":""}${pct.toFixed(2)}%</span></div>`) +
+      `<div class="r"><b>Open:</b><span>${f(c.o)}</span></div><div class="r"><b>High:</b><span>${f(c.h)}</span></div>` +
+      `<div class="r"><b>Low:</b><span>${f(c.l)}</span></div><div class="r"><b>Close:</b><span class="${c.c>=c.o?"up":"dn"}">${f(c.c)}</span></div>` +
+      (c.cv != null ? `<div class="r m"><span>Calls ${n0(c.cv)}</span><span>Puts ${n0(c.pv)}</span></div>` : "");
+    const r = ctx.chart.canvas.getBoundingClientRect();
+    let x = r.left + t.caretX + 16;
+    if (x + el.offsetWidth > innerWidth - 8) x = r.left + t.caretX - el.offsetWidth - 16;
+    el.style.left = Math.max(8, x) + "px";
+    el.style.top = Math.max(8, Math.min(r.top + t.caretY - el.offsetHeight / 2, innerHeight - el.offsetHeight - 8)) + "px";
+    el.style.opacity = 1;
+  };
+}
 function agg(cs, n){
   if (n <= 1) return cs;
   const out = [];
@@ -480,22 +513,21 @@ function priceGexChart(s, isLive){
   dots = dots.filter(d => d.y >= lo && d.y <= hi);
   const flip = s.flip?.[B];
   $("#pgDesc").textContent = `왼쪽은 가격(${src}, 시각은 ET), 오른쪽은 같은 가격 축의 ${BUCKET_KO[B]} 행사가별 순 GEX(+ 빨강, − 파랑) · 점은 ${refT ? refT + " ET(그날 첫 기록)" : "기준 시점"} 순 GEX · 주황 점선은 감마 플립 · 위 막대에서 날짜·시각을 바꾸면 지난 시점을 볼 수 있다` + (s.spot_note ? ` · ${s.spot_note}` : "");
-  const lines = [{v:s.spot, color:css("--ink"), label:`${s.spot}`, dash:[2,3]}, {v:flip, color:css("--orange"), label:flip ? `플립 ${flip}` : ""}];
-  const up = css("--red"), dn = css("--blue");
+  const lines = [{v:s.spot, color:css("--ink"), label:`${s.spot}`, dash:[2,3]}, {v:flip, color:css("--orange"), label:flip ? `Flip ${flip}` : ""}];
+  const up = css("--cup"), dn = css("--cdn");
   const o1 = baseOpts();
   o1.plugins.legend.display = false;
   o1.scales.y = {...o1.scales.y, min:lo, max:hi, position:"right"};
   o1.scales.x.ticks.maxTicksLimit = 7; o1.scales.x.grid = {display:false};
   o1.plugins.vlines = {hlines: lines};
   if (cs.length){
-    o1.plugins.tooltip.callbacks = {title: it => `${cs[it[0].dataIndex].t} ET`, label: it => { if (it.datasetIndex) return null; const c = cs[it.dataIndex];
-      return [`시 ${c.o} · 고 ${c.h}`, `저 ${c.l} · 종 ${c.c}`, `옵션 거래 콜 ${n0(c.cv)} · 풋 ${n0(c.pv)}`]; }};
+    o1.plugins.tooltip = {enabled:false, external:ohlcTip(cs, s.prev_close, st.sym)};
     const flat = (hi - lo) * 0.0008;
     draw("#cPrice", {type:"bar", options:o1, data:{labels:cs.map(c=>c.t), datasets:[
       {data:cs.map(c=>[c.l, c.h]), backgroundColor:cs.map(c=>c.c>=c.o?up:dn), barThickness:1, grouped:false},
       {data:cs.map(c=>[Math.min(c.o,c.c), Math.max(c.o,c.c) + (c.o===c.c ? flat : 0)]), backgroundColor:cs.map(c=>c.c>=c.o?up:dn), barPercentage:0.75, categoryPercentage:1, grouped:false}]}});
   } else {
-    o1.plugins.tooltip.callbacks = {title: it => `${line[it[0].dataIndex].t} ET`, label: it => `${it.parsed.y}`};
+    o1.plugins.tooltip.callbacks = {title: it => `${ampm(line[it[0].dataIndex].t)} ET`, label: it => `${st.sym} ${it.parsed.y}`};
     draw("#cPrice", {type:"line", options:o1, data:{labels:line.map(p=>p.t), datasets:[
       {data:line.map(p=>p.y), borderColor:css("--ink"), borderWidth:1.6, pointRadius:line.length>40?0:2, tension:.15}]}});
   }
@@ -505,11 +537,11 @@ function priceGexChart(s, isLive){
   o2.plugins.legend.display = false;
   o2.scales.y = {...o2.scales.y, type:"linear", min:lo, max:hi, display:false};
   o2.scales.x.ticks.callback = v => money(v); o2.scales.x.ticks.maxTicksLimit = 4;
-  o2.plugins.tooltip.callbacks = {title: it => `행사가 ${it[0].parsed.y}`, label: it => `${it.dataset.label} ${money(it.parsed.x)}`};
+  o2.plugins.tooltip.callbacks = {title: it => `Strike ${it[0].parsed.y}`, label: it => `${it.dataset.label} ${money(it.parsed.x)}`};
   o2.plugins.vlines = {hlines: lines.map(l => ({...l, label:""}))};
   draw("#cLadder", {type:"bar", options:o2, data:{datasets:[
-    {label:"순 GEX", data:net, backgroundColor:net.map(d=>d.x>=0?up:dn), barPercentage:0.9, categoryPercentage:1, grouped:false},
-    {type:"scatter", label:"그날 첫 기록", data:dots, backgroundColor:css("--sub"), pointRadius:2.5}]}});
+    {label:"Net GEX", data:net, backgroundColor:net.map(d=>d.x>=0?css("--red"):css("--blue")), barPercentage:0.9, categoryPercentage:1, grouped:false},
+    {type:"scatter", label:"First of day", data:dots, backgroundColor:css("--sub"), pointRadius:2.5}]}});
 }
 
 function strikeChart(s){
@@ -517,27 +549,27 @@ function strikeChart(s){
   if (!k.k.length) return;
   o.scales.x = {...o.scales.x, type:"linear", min:k.k[0], max:k.k[k.k.length-1]};
   o.scales.y.ticks.callback = v => money(v);
-  o.plugins.tooltip.callbacks = {title: it => `행사가 ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
-  o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`현재가 ${s.spot}`, dash:[2,3]},
-    {v:s.flip?.[B], color:css("--orange"), label:s.flip?.[B] ? `플립 ${s.flip[B]}` : "", row:1}]};
+  o.plugins.tooltip.callbacks = {title: it => `Strike ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
+  o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`Spot ${s.spot}`, dash:[2,3]},
+    {v:s.flip?.[B], color:css("--orange"), label:s.flip?.[B] ? `Flip ${s.flip[B]}` : "", row:1}]};
   draw("#cStrike", {type:"bar", options:o, data:{datasets:[
-    {label:s.frame ? "순 GEX +" : "콜", data:k.k.map((x,i)=>({x, y:k.c[i]})), backgroundColor:css("--red"), grouped:false, barPercentage:1, categoryPercentage:1},
-    {label:s.frame ? "순 GEX −" : "풋", data:k.k.map((x,i)=>({x, y:k.p[i]})), backgroundColor:css("--blue"), grouped:false, barPercentage:1, categoryPercentage:1}]}});
+    {label:s.frame ? "Net GEX +" : "Call", data:k.k.map((x,i)=>({x, y:k.c[i]})), backgroundColor:css("--red"), grouped:false, barPercentage:1, categoryPercentage:1},
+    {label:s.frame ? "Net GEX −" : "Put", data:k.k.map((x,i)=>({x, y:k.p[i]})), backgroundColor:css("--blue"), grouped:false, barPercentage:1, categoryPercentage:1}]}});
 }
 
 function profileChart(s){
   const p = s.profile; const o = baseOpts();
   o.scales.x = {...o.scales.x, type:"linear", min:p.s[0], max:p.s[p.s.length-1]};
   o.scales.y.ticks.callback = v => money(v);
-  o.plugins.tooltip.callbacks = {title: it => `가격 ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
+  o.plugins.tooltip.callbacks = {title: it => `Price ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
   const pb = st.bucket === "0dte" ? "monthly" : st.bucket;
   const fl = s.flip?.[pb];
-  $("#flipTag").textContent = fl ? `플립 ${fl}` : "";
-  o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`현재가 ${s.spot}`, dash:[2,3]},
-    {v:fl, color:css("--orange"), label:fl ? `감마 플립 ${fl}` : "", dash:[6,3], row:1}]};
+  $("#flipTag").textContent = fl ? `Flip ${fl}` : "";
+  o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`Spot ${s.spot}`, dash:[2,3]},
+    {v:fl, color:css("--orange"), label:fl ? `Gamma Flip ${fl}` : "", dash:[6,3], row:1}]};
   const tint = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.round(a*255).toString(16).padStart(2,"0") : c; };
   const main = pb, other = main === "monthly" ? "all" : "monthly";
-  const ds = [[main, main==="monthly"?"월물":"전체 만기", css("--navy"), 3, true], [other, other==="monthly"?"월물":"전체 만기", css("--faint"), 1.5, false]]
+  const ds = [[main, main==="monthly"?"Monthly":"All", css("--navy"), 3, true], [other, other==="monthly"?"Monthly":"All", css("--faint"), 1.5, false]]
     .filter(([b]) => p[b]).map(([b,l,c,w,f]) => ({label:l, data:p.s.map((x,i)=>({x, y:p[b][i]})), borderColor:c, borderWidth:w, pointRadius:0, tension:.25,
       fill: f ? {target:"origin", above:tint("--red", .18), below:tint("--blue", .18)} : false}));
   ds.push({label:"0", data:[{x:p.s[0],y:0},{x:p.s[p.s.length-1],y:0}], borderColor:css("--mute"), borderWidth:1, borderDash:[4,4], pointRadius:0});
@@ -550,7 +582,7 @@ function intradayChart(s){
   const key = {monthly:"net_m", all:"net_all"}[st.bucket] || "net_all";
   let pts, desc, mark = null;
   if (s.frame){
-    pts = st.fdoc.frames.map(f => ({t:(f.sess === "야간" ? "야" : "") + f.t, spot:f.s, v:f.n[bi]})); desc = "기록된 시점";
+    pts = st.fdoc.frames.map(f => ({t:(f.sess === "야간" ? "G " : "") + f.t, spot:f.s, v:f.n[bi]})); desc = "기록된 시점";
     mark = st.fi;
   } else {
     pts = (st.live?.series || []).filter(x => x.date === s.date).map(x => ({t:x.t, spot:x.spot, v:x[key]})); desc = "1분 간격";
@@ -565,10 +597,10 @@ function intradayChart(s){
   if (mark != null) o.plugins.vlines = {lines:[{v:mark, color:css("--orange"), label:pts[mark]?.t || "", dash:[3,3]}]};
   const dense = pts.length > 40;
   draw("#cIntraday", {data:{labels:pts.map(x=>x.t), datasets:[
-    dense ? {type:"line", label:"순 GEX", data:pts.map(x=>x.v), borderColor:css("--sub"), borderWidth:1.2, pointRadius:0, yAxisID:"y", order:2,
+    dense ? {type:"line", label:"Net GEX", data:pts.map(x=>x.v), borderColor:css("--sub"), borderWidth:1.2, pointRadius:0, yAxisID:"y", order:2,
              fill:{target:"origin", above:alpha("--red", .35), below:alpha("--blue", .35)}}
-          : {type:"bar", label:"순 GEX", data:pts.map(x=>x.v), backgroundColor:pts.map(x=>alpha(x.v>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
-    {type:"line", label:"현재가", data:pts.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:pts.length>30?0:3.5,
+          : {type:"bar", label:"Net GEX", data:pts.map(x=>x.v), backgroundColor:pts.map(x=>alpha(x.v>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
+    {type:"line", label:"Spot", data:pts.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:pts.length>30?0:3.5,
      pointBackgroundColor:css("--ink"), yAxisID:"y2", order:0}]}, options:o});
 }
 
@@ -580,34 +612,34 @@ function historyChart(){
   o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
   o.scales.x.ticks.maxTicksLimit = 10;
   draw("#cHistory", {data:{labels:h.map(x=>x.date.slice(5)), datasets:[
-    {type:"bar", label:"월물 순 GEX", data:h.map(x=>x.net_monthly), backgroundColor:h.map(x=>alpha(x.net_monthly>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
-    {type:"line", label:"현재가", data:h.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:0, yAxisID:"y2", order:0},
-    {type:"line", label:"감마 전환점", data:h.map(x=>x.flip_monthly), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2", order:1}]}, options:o});
+    {type:"bar", label:"Net GEX (Monthly)", data:h.map(x=>x.net_monthly), backgroundColor:h.map(x=>alpha(x.net_monthly>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
+    {type:"line", label:"Spot", data:h.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:0, yAxisID:"y2", order:0},
+    {type:"line", label:"Gamma Flip", data:h.map(x=>x.flip_monthly), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2", order:1}]}, options:o});
 }
 
 const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
-const cp = c => c==="C" ? `<span class="c">콜</span>` : `<span class="p">풋</span>`;
-const ratio = r => r.oi ? (r.vol/r.oi).toFixed(1)+"배" : "신규";
+const cp = c => c==="C" ? `<span class="c">Call</span>` : `<span class="p">Put</span>`;
+const ratio = r => r.oi ? (r.vol/r.oi).toFixed(1)+"x" : "New";
 
 function tables(s, isLive){
   const win = s.flow_min, flow = win != null;
-  setTitle($("#flowTitle"), flow ? `유입 상위 (최근 ${win}분)` : "유입 상위 (flow)");
+  setTitle($("#flowTitle"), flow ? `Top Flow (last ${win}m)` : "Top Flow");
   $("#flowDesc").textContent = flow ? `${isLive ? "최근" : "직전 스냅샷 이후"} ${win}분 동안 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다`
                                     : "비교할 직전 시세가 없거나 장 마감 후라 유입을 계산하지 않았습니다.";
   const V = s.top_volume || s.top_contracts || [];
-  $("#tVol").innerHTML = V.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th><th>누적</th><th>미결제</th><th>거래/미결제</th><th>IV</th><th>최근가</th></tr>` +
+  $("#tVol").innerHTML = V.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>Volume</th><th>OI</th><th>Vol/OI</th><th>IV</th><th>Last</th></tr>` +
     V.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vol)}</b></td>
       <td>${n0(r.oi)}</td><td>${ratio(r)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
-    : `<tr><td class="empty">거래가 없습니다.</td></tr>`;
+    : `<tr><td class="empty">No trades.</td></tr>`;
   const F = s.top_flow || [];
-  $("#tFlow").innerHTML = F.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th><th>유입</th><th>누적</th><th>미결제</th><th>IV</th><th>최근가</th></tr>` +
+  $("#tFlow").innerHTML = F.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>Flow</th><th>Volume</th><th>OI</th><th>IV</th><th>Last</th></tr>` +
     F.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vh)}</b></td>
       <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
-    : `<tr><td class="empty">유입 데이터가 없습니다 (장중에만 계산).</td></tr>`;
-  $("#tExp").innerHTML = `<tr><th>만기</th>${flow?"<th>유입</th>":""}<th>누적</th><th>콜 비중</th><th>미결제</th></tr>` +
+    : `<tr><td class="empty">No flow (regular session only).</td></tr>`;
+  $("#tExp").innerHTML = `<tr><th>Expiry</th>${flow?"<th>Flow</th>":""}<th>Volume</th><th>Call %</th><th>OI</th></tr>` +
     (s.top_expiries||[]).map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>
       <td>${r.call_share==null?"–":Math.round(r.call_share*100)+"%"}</td><td>${n0(r.oi)}</td></tr>`).join("");
-  $("#tStrike").innerHTML = `<tr><th>행사가</th><th>구분</th>${flow?"<th>유입</th>":""}<th>누적</th><th>미결제</th></tr>` +
+  $("#tStrike").innerHTML = `<tr><th>Strike</th><th>Type</th>${flow?"<th>Flow</th>":""}<th>Volume</th><th>OI</th></tr>` +
     (s.top_strikes||[]).map(r => `<tr><td>${r.strike}</td><td>${cp(r.cp)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td><td>${n0(r.oi)}</td></tr>`).join("");
 }
 
