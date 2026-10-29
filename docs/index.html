@@ -121,7 +121,7 @@ th:first-child,td:first-child{text-align:left}
 <div class="wrap">
   <header>
     <h1>Options Gamma Dashboard</h1>
-    <p>SPX · TSLA dealer gamma exposure (GEX) · Monthly expiries · 60s refresh · Cboe data delayed 15 min</p>
+    <p>SPX · TSLA dealer gamma exposure (GEX) · All expiries ex-0DTE · 60s refresh · Cboe data delayed 15 min</p>
     <div class="meta"><span id="meta">Loading…</span><span id="tick"></span></div>
   </header>
 
@@ -159,13 +159,13 @@ th:first-child,td:first-child{text-align:left}
       </div>
       <div class="card">
         <h2>Intraday</h2>
-        <p class="d" id="intraDesc">월물 순 GEX와 현재가. 미결제약정은 장중 고정이라 변화는 가격·변동성 때문</p>
+        <p class="d" id="intraDesc">순 GEX와 현재가. 미결제약정은 장중 고정이라 변화는 가격·변동성 때문</p>
         <div class="chart sm"><canvas id="cIntraday"></canvas></div>
       </div>
     </div>
     <div class="card">
       <h2>Daily (Close)</h2>
-      <p class="d">월물 순 GEX, 현재가, 감마 전환점 · 최근 90거래일</p>
+      <p class="d" id="histDesc">순 GEX, 현재가, 감마 전환점(위에서 고른 만기 묶음 기준, 0DTE는 All) · 최근 90거래일</p>
       <div class="chart sm" id="histBox"><canvas id="cHistory"></canvas></div>
       <p class="empty hide" id="histEmpty">Daily history appears after a full day of snapshots.</p>
     </div>
@@ -200,7 +200,8 @@ th:first-child,td:first-child{text-align:left}
     <b>계산 방법</b> — GEX = 감마 × 미결제약정 × 100 × 현재가² × 1%. 딜러가 콜은 매수, 풋은 매도한 상태라는 통상 가정으로 콜 +, 풋 −.
     순 GEX가 <b>양(+)</b>이면 딜러가 오르면 팔고 내리면 사서 변동을 줄이는 쪽, <b>음(−)</b>이면 변동을 키우는 쪽이다.
     TSLA처럼 개인 콜 매수가 많은 종목은 딜러가 콜을 판 상태일 수 있으니 콜·풋 막대를 따로 보고 판단한다.<br>
-    <b>월물 기준인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 생기고 사라지는 0DTE 포지션은 잡히지 않는다. 그래서 헤지 포지션이 남아 있는 월물(SPX는 AM 정산 월물 루트 SPX, TSLA는 셋째 금요일)을 기본으로 보고, 0DTE·위클리는 거래량 표로 본다.<br>
+    <b>기본값이 All(오늘 만기 제외 전 만기)인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 열고 닫는 0DTE 포지션은 잡히지 않는다. 하지만 내일 이후 만기인 위클리(SPXW)·월말물은 전일 OI가 다 잡히고, SPX 감마는 월물보다 위클리 쪽에 훨씬 많이 쌓여 있다. 그래서 오늘 만기만 빼고 전부 합친 값을 기본으로 보고, 월물만(Monthly)·오늘 만기만(0DTE)은 위 토글로 따로 본다.<br>
+    <b>그릭스</b> — 감마·IV는 Cboe가 계산한 값을 그대로 쓴다. Cboe IV는 매수·매도 호가의 중간가(mid)로 역산한 값과 평균 0.2%p 이내로 맞는다(체결가가 아니라 중간가 기준). 야간(GTH)에는 지수가 멈춰 있어, 중간가로 역산한 지수에서 Cboe IV로 감마를 다시 계산한다.<br>
     <b>시세</b> — 자료: Cboe 지연 시세(15분). 학습·연구용이며 투자 판단의 근거로 쓰지 않는다. CBOE 무료 시세라 15분 늦다. 시각은 모두 시세가 반영하는 시장 시각(ET). 장중에는 1분마다 다시 계산하고, 매시 스냅샷은 원자료와 함께 저장한다.
   </div>
 </div>
@@ -213,12 +214,12 @@ const POLL = 60;   // GitHub API 무인증 한도(공인 IP당 시간당 60회).
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const alpha = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.round(a*255).toString(16).padStart(2,"0") : c; };
-const BUCKETS = [["monthly","Monthly"],["all","All"],["0dte","0DTE"]];
+const BUCKETS = [["all","All"],["monthly","Monthly"],["0dte","0DTE"]];
 const BUCKET_KO = {monthly:"Monthly", weekly:"Weekly", "0dte":"0DTE", all:"All"};
 const SESS_EN = {"정규장":"RTH", "야간":"GTH (overnight)", "개장 전":"Pre-market", "장 마감 후":"After hours"};
 const IVALS = [1, 5, 15];
 // day: "live"(오늘) 또는 보관된 날짜, fi: 고른 분 단위 장면 번호(null이면 실시간)
-const st = {sym:null, live:null, hourly:null, bucket:"monthly", ival:1, day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
+const st = {sym:null, live:null, hourly:null, bucket:"all", ival:1, day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
             archive:{}, charts:{}, next:POLL};
 
 const fmtM = v => v==null ? "–" : (Math.abs(v)>=1000 ? (v/1000).toFixed(2)+"B" : Math.round(v)+"M");
@@ -286,10 +287,10 @@ const BAR_INFO = {
     "‹ › 로 한 시점씩 앞뒤로 움직이면 그 시점의 GEX·가격 봉을 다시 그린다",
     "● LIVE를 누르면 최신 시점으로 돌아가고 60초마다 자동 갱신된다 (Cboe 시세라 15분 지연)",
     "ET는 미국 동부시간이다. 한국시간은 서머타임 기간 +13시간, 표준시(11/1부터) +14시간"]},
-  bucket: {title:"Expiry Filter (Monthly · All · 0DTE)", lines:[
-    "<b style='display:inline;font-size:14px'>Monthly</b>: 월물 만기(매달 셋째 금요일) 옵션만으로 GEX를 계산한다. SPX는 오전 정산 월물(SPX 루트) 기준. 딜러가 오래 들고 헤지하는 포지션이라 기본값이다",
-    "<b style='display:inline;font-size:14px'>All</b>: 주간·분기·장기물까지 상장된 모든 만기를 합산한다",
-    "<b style='display:inline;font-size:14px'>0DTE</b>: 그날 만기되는 옵션만 본다. 하루짜리라 딜러가 헤지보다 포지션 정리로 대응할 수 있어 참고용이다. 당일 만기가 없는 날은 비어 있다",
+  bucket: {title:"Expiry Filter (All · Monthly · 0DTE)", lines:[
+    "<b style='display:inline;font-size:14px'>All</b> (기본값): 오늘 만기를 뺀 모든 만기(위클리·월물·월말물·분기·장기물)를 합산한다. 전일 미결제약정이 다 잡히는 포지션 전체다. SPX 감마는 위클리 쪽에 많이 쌓여 있어 이걸 기본으로 본다",
+    "<b style='display:inline;font-size:14px'>Monthly</b>: 월물 만기(매달 셋째 금요일) 옵션만 본다. SPX는 오전 정산 월물(SPX 루트) 기준",
+    "<b style='display:inline;font-size:14px'>0DTE</b>: 그날 만기되는 옵션만 본다. 오늘 새로 연 포지션은 미결제약정에 안 잡혀 전일 OI만 반영된 참고용이다. 당일 만기가 없는 날은 비어 있다",
     "바꾸면 KPI(Net GEX·Gamma Flip·Call/Put Wall), GEX by Strike, Gamma Profile, SpotGammaFlow 오른쪽 막대가 함께 바뀐다. 거래량 표는 만기 필터와 무관하다"]},
   ival: {title:"Candle Interval", lines:[
     "SpotGammaFlow 가격 봉의 간격이다. 1분봉을 5분·15분씩 묶어서 그린다",
@@ -405,6 +406,7 @@ function frameSlot(fi){
   return {...base, frame:true, base_t:base.quote_et || null, date:fd.date, session:f.sess, quote_et:f.t, quote_date_et:f.q.slice(0,10),
     quote_kst:kstOf(f.q), spot:f.s, gex:true, total:{monthly:{net:f.n[0]}, all:{net:f.n[1]}, "0dte":{net:f.n[2]}},
     flip:{monthly:f.f[0], all:f.f[1]}, call_wall:f.w[0], put_wall:f.w[1],
+    walls:f.w.length >= 6 ? {all:[f.w[0], f.w[1]], monthly:[f.w[2], f.w[3]], "0dte":[f.w[4], f.w[5]]} : null,
     strikes:{monthly:split(f.m), all:split(f.a), "0dte":split(f.z)},
     spot_note: f.sess === "야간" ? "야간: 현재가는 옵션 가격으로 역산한 지수" : null, prev_close: base.prev_close || null};
 }
@@ -458,10 +460,11 @@ function kpis(s, gx){
       ["현재가가 1% 움직일 때 딜러가 헤지로 사고팔아야 하는 금액", "양(+)이면 오르면 팔고 내리면 사서 변동을 줄이는 쪽", "음(−)이면 같은 방향으로 따라 매매해 변동을 키우는 쪽", "딜러가 콜은 매수·풋은 매도한 상태라는 통상 가정"]]);
     items.push(["Gamma Flip", flip ?? "–", flip ? (s.spot>=flip ? `Spot ${(s.spot-flip).toFixed(1)} above` : `Spot ${(flip-s.spot).toFixed(1)} below`) : "Out of range", "",
       ["가격이 움직일 때 순 GEX가 0이 되는 가격", "이 위에서는 양(+) 감마, 아래에서는 음(−) 감마", "현재가가 플립 아래로 내려가면 변동이 커지기 쉽다는 관점이 있지만 참고 지표"]]);
-    items.push(["Call Wall", s.call_wall ?? "–", "Max net GEX strike", "pos",
-      ["월물 행사가별 순 GEX가 가장 큰 행사가", "주가 상승을 막는 저항처럼 보는 관점이 있지만 참고 지표", "콜·풋이 짝으로 쌓인 박스 포지션은 서로 상쇄돼 빠진다"]]);
-    items.push(["Put Wall", s.put_wall ?? "–", "Min net GEX strike", "neg",
-      ["월물 행사가별 순 GEX가 가장 작은(음수가 가장 큰) 행사가", "주가 하락을 받치는 지지처럼 보는 관점이 있지만 참고 지표"]]);
+    const [cw, pw] = s.walls?.[b] || [s.call_wall, s.put_wall];
+    items.push(["Call Wall", cw ?? "–", "Max net GEX strike", "pos",
+      [`${BUCKET_KO[b]} 기준 행사가별 순 GEX가 가장 큰 행사가`, "주가 상승을 막는 저항처럼 보는 관점이 있지만 참고 지표", "콜·풋이 짝으로 쌓인 박스 포지션은 서로 상쇄돼 빠진다"]]);
+    items.push(["Put Wall", pw ?? "–", "Min net GEX strike", "neg",
+      [`${BUCKET_KO[b]} 기준 행사가별 순 GEX가 가장 작은(음수가 가장 큰) 행사가`, "주가 하락을 받치는 지지처럼 보는 관점이 있지만 참고 지표"]]);
   } else if (s.gex_note){ items.push(["GEX", "–", "No greeks yet", "", [s.gex_note]]); }
   if (s.atm_iv) items.push(["ATM IV", s.atm_iv.iv+"%", `${s.atm_iv.expiry.slice(5)} monthly · ${s.atm_iv.strike}`, "", ["가장 가까운 월물에서 현재가에 가장 가까운 행사가의 내재변동성(콜·풋 평균)"]]);
   items.push(["P/C Volume", s.pc_vol ?? "–", `OI P/C ${s.pc_oi ?? "–"}`, "", ["오늘 풋 거래량 ÷ 콜 거래량", "1보다 크면 풋 거래가 더 많다", "미결제 P/C는 전일 마감 기준"]]);
@@ -471,7 +474,7 @@ function kpis(s, gx){
 }
 
 const PAD = {SPX: 0.006, TSLA: 0.025};
-const LADDER_N = {SPX: 20, TSLA: 10};   // SpotGammaFlow 오른쪽 막대: 현재가 위아래로 최소 이만큼의 행사가가 보이게 가격 축을 넓힌다
+const LADDER_N = {SPX: 20, TSLA: 4};   // SpotGammaFlow 오른쪽 막대: 현재가 위아래로 최소 이만큼의 행사가가 보이게 가격 축을 넓힌다
 const ampm = t => { const [h, m] = t.replace(/^\D+/, "").split(":").map(Number); return `${(h % 12) || 12}:${String(m).padStart(2,"0")} ${h < 12 ? "AM" : "PM"}`; };
 // 캔들에 올리면 뜨는 상자: 시각 · 종목 등락률(전일 종가 대비) · 시가·고가·저가·종가 · 분당 옵션 거래량
 function ohlcTip(cs, prev, sym){
@@ -592,7 +595,7 @@ function priceGexChart(s, isLive){
   o2.plugins.tooltip.callbacks = {title: it => `Strike ${it[0].parsed.y}`, label: it => `${it.dataset.label} ${money(it.parsed.x)}`};
   o2.plugins.vlines = {hlines: lines.map(l => ({...l, label:""}))};
   draw("#cLadder", {type:"bar", options:o2, data:{datasets:[
-    {label:"Net GEX", data:net, backgroundColor:net.map(d=>d.x>=0?css("--red"):css("--blue")), barPercentage:0.9, categoryPercentage:1, grouped:false},
+    {label:"Net GEX", data:net, backgroundColor:net.map(d=>d.x>=0?css("--red"):css("--blue")), barPercentage:0.55, categoryPercentage:1, maxBarThickness:9, grouped:false},
     {type:"scatter", label:"First of day", data:dots, backgroundColor:css("--sub"), pointRadius:2.5}]}});
 }
 
@@ -614,7 +617,7 @@ function profileChart(s){
   o.scales.x = {...o.scales.x, type:"linear", min:p.s[0], max:p.s[p.s.length-1]};
   o.scales.y.ticks.callback = v => money(v);
   o.plugins.tooltip.callbacks = {title: it => `Price ${it[0].parsed.x}`, label: it => `${it.dataset.label} ${money(it.parsed.y)}`};
-  const pb = st.bucket === "0dte" ? "monthly" : st.bucket;
+  const pb = st.bucket === "0dte" ? "all" : st.bucket;
   const fl = s.flip?.[pb];
   $("#flipTag").textContent = fl ? `Flip ${fl}` : "";
   o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`Spot ${s.spot}`, dash:[2,3]},
@@ -657,16 +660,17 @@ function intradayChart(s){
 }
 
 function historyChart(){
-  const h = (st.hourly?.history || []).filter(x => x.net_monthly != null); const o = baseOpts();
+  const hb = st.bucket === "monthly" ? "monthly" : "all";
+  const h = (st.hourly?.history || []).filter(x => x["net_" + hb] != null); const o = baseOpts();
   $("#histBox").classList.toggle("hide", !h.length); $("#histEmpty").classList.toggle("hide", !!h.length);
   if (!h.length) return;
   o.scales.y.ticks.callback = v => money(v);
   o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
   o.scales.x.ticks.maxTicksLimit = 10;
   draw("#cHistory", {data:{labels:h.map(x=>x.date.slice(5)), datasets:[
-    {type:"bar", label:"Net GEX (Monthly)", data:h.map(x=>x.net_monthly), backgroundColor:h.map(x=>alpha(x.net_monthly>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
+    {type:"bar", label:`Net GEX (${BUCKET_KO[hb]})`, data:h.map(x=>x["net_" + hb]), backgroundColor:h.map(x=>alpha(x["net_" + hb]>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
     {type:"line", label:"Spot", data:h.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:0, yAxisID:"y2", order:0},
-    {type:"line", label:"Gamma Flip", data:h.map(x=>x.flip_monthly), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2", order:1}]}, options:o});
+    {type:"line", label:"Gamma Flip", data:h.map(x=>x["flip_" + hb]), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2", order:1}]}, options:o});
 }
 
 const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
