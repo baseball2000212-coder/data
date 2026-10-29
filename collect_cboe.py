@@ -202,6 +202,12 @@ def main():
     if live is not None:
         h, mnt = (EARLY_LIVE_END if day in EARLY_CLOSE else LIVE_END)[mode]
         live.run_until(now.replace(hour=h, minute=mnt, second=0, microsecond=0))
+        if mode == "pm" or day in EARLY_CLOSE:   # 장 마감 후 그날 분 단위 기록을 보관
+            try:
+                live.archive()
+                subprocess.run(["bash", "commit.sh", f"archive {day}"], check=False)
+            except Exception as e:
+                print(f"[archive FAIL] {e}", file=sys.stderr, flush=True)
     sys.exit(1 if total_fails else 0)
 
 

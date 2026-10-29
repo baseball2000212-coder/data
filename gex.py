@@ -235,8 +235,11 @@ def metrics(df, day, prev, sym, tag):
 
     band = df[(df["strike"] >= spot * (1 - BAND)) & (df["strike"] <= spot * (1 + BAND))]
     out["strikes"] = {}
-    for b in ("monthly", "all"):
-        s = band if b == "all" else band[band["bucket"] == "monthly"]
+    for b in ("monthly", "0dte", "all"):
+        s = band if b == "all" else band[band["bucket"] == b]
+        if s.empty:
+            out["strikes"][b] = {"k": [], "c": [], "p": []}
+            continue
         g = s.pivot_table(index="strike", columns="cp", values="gex", aggfunc="sum").fillna(0)
         g = g.reindex(columns=["C", "P"], fill_value=0)
         out["strikes"][b] = {"k": [float(k) for k in g.index], "c": [_m(v, 2) for v in g["C"]], "p": [_m(v, 2) for v in g["P"]]}
@@ -264,6 +267,56 @@ def metrics(df, day, prev, sym, tag):
                       **{b: (None if prof[b] is None else [_m(y) for y in prof[b]]) for b in prof}}
     out["flip"] = {b: (None if prof[b] is None else _flip(xs, prof[b], spot)) for b in prof}
     return out
+
+
+FRAME_BAND = {"SPX": 0.02, "TSLA": 0.06}
+
+
+def frame_of(m, qt, band):
+    """한 시점의 행사가별 순 GEX(현재가 ±band)와 요약. 화면에서 지난 시점을 고를 때 쓴다."""
+    spot, st = m["spot"], m["strikes"]
+    ks = [k for k in st["all"]["k"] if spot * (1 - band) <= k <= spot * (1 + band)]
+    def nets(b):
+        d = st.get(b) or {"k": [], "c": [], "p": []}
+        mp = {k: round((c or 0) + (p or 0), 1) for k, c, p in zip(d["k"], d["c"], d["p"])}
+        return [mp.get(k, 0) for k in ks]
+    t = m.get("total") or {}
+    return {"t": m["quote_et"], "q": qt.strftime("%Y-%m-%d %H:%M"), "sess": m.get("session"), "s": spot,
+            "n": [(t.get(b) or {}).get("net") for b in ("monthly", "all", "0dte")],
+            "f": [(m.get("flip") or {}).get(b) for b in ("monthly", "all")],
+            "w": [m.get("call_wall"), m.get("put_wall")],
+            "k": ks, "m": nets("monthly"), "a": nets("all"), "z": nets("0dte")}
+
+
+def write_archive(sym, day, slots, out_dir="docs/archive"):
+    """매시 스냅샷으로 그날 보관본을 만든다(분 단위 기록이 없던 날용). 이미 분 단위 보관본이 있으면 건드리지 않는다."""
+    p = f"{out_dir}/{sym}/{day}.json"
+    if os.path.exists(p):
+        try:
+            if len(json.load(open(p, encoding="utf-8")).get("frames", [])) > len(slots):
+                return
+        except Exception:
+            pass
+    frames = []
+    for s in slots:
+        if s.get("gex") is False or not s.get("strikes"):
+            continue
+        qt = datetime.strptime(f"{s.get('quote_date_et') or day} {s['quote_et']}", "%Y-%m-%d %H:%M").replace(tzinfo=ET)
+        frames.append(frame_of(s, qt, FRAME_BAND.get(sym, 0.05)))
+    if not frames:
+        return
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        json.dump({"symbol": sym, "date": str(day), "bars": [], "frames": frames, "slots": slots}, fh,
+                  ensure_ascii=False, separators=(",", ":"))
+    ip = f"{out_dir}/index.json"
+    try:
+        idx = json.load(open(ip, encoding="utf-8"))
+    except Exception:
+        idx = {}
+    idx[sym] = sorted(set(idx.get(sym, [])) | {str(day)})
+    with open(ip, "w", encoding="utf-8") as fh:
+        json.dump(idx, fh, ensure_ascii=False, separators=(",", ":"))
 
 
 def day_files(data_dir, sym, day):
@@ -359,6 +412,7 @@ def build_day(day, data_dir="data", out_dir="docs/gex", verbose=False, strict=Tr
             continue
         h = save_history(out_dir, sym, hist_rows(day, slots), [day])
         write_json(out_dir, sym, day, slots, h)
+        write_archive(sym, day, slots, out_dir=os.path.join(os.path.dirname(out_dir), "archive"))
         if verbose:
             s = slots[-1]
             t = (s.get("total") or {}).get("monthly")
@@ -381,6 +435,7 @@ def build_all(data_dir="data", out_dir="docs/gex"):
             if slots:
                 rows += hist_rows(day, slots)
                 last = (day, slots)
+                write_archive(sym, day, slots, out_dir=os.path.join(os.path.dirname(out_dir), "archive"))
         print(f"[gex] {sym} history {len(rows)}행", flush=True)
         if os.path.exists(f"{out_dir}/history/{sym}.csv"):
             os.remove(f"{out_dir}/history/{sym}.csv")
