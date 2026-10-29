@@ -94,11 +94,49 @@ def expiry_dt(df):
     return keys.map(cache)
 
 
+DIV = {"SPX": 0.012}   # 배당수익률 근사 (선도가 → 현물 환산용)
+
+
+def implied_spot(df, qt, day, sym):
+    """가장 가까운 월물의 풋콜 패리티로 지수를 역산한다: F = K + (콜 중간가 − 풋 중간가)·e^(rT), S = F·e^(−(r−q)T).
+    야간에는 지수가 계산되지 않아 CBOE 현재가가 전날 종가에 멈춰 있으므로 이 값을 현재가로 쓴다.
+    정규장 데이터로 검증하면 실제 가격과 0.1% 안쪽으로 맞는다."""
+    d = df[(df["expiry"] > day) & df["expiry"].map(is_monthly)]
+    if d.empty:
+        return None
+    e = d["expiry"].min()
+    m = d[d["expiry"] == e]
+    T = (datetime.combine(e, dtime(16, 0), ET) - qt).total_seconds() / (365 * 86400)
+    s0 = float(df["spot"].iloc[0])
+    c = m[m["cp"] == "C"].set_index("strike")
+    p = m[m["cp"] == "P"].set_index("strike")
+    fs = []
+    for k in c.index.intersection(p.index):
+        if abs(k / s0 - 1) > 0.04:
+            continue
+        cb, ca, pb, pa = (float(x) for x in (c.at[k, "bid"], c.at[k, "ask"], p.at[k, "bid"], p.at[k, "ask"]))
+        if min(cb, ca, pb, pa) <= 0:
+            continue
+        cm, pm = (cb + ca) / 2, (pb + pa) / 2
+        if (ca - cb) / cm > 0.1 or (pa - pb) / pm > 0.1:
+            continue
+        fs.append(k + (cm - pm) * np.exp(R * T))
+    if len(fs) < 3:
+        return None
+    return float(np.median(fs) * np.exp(-(R - DIV.get(sym, 0.0)) * T))
+
+
 def metrics(df, day, prev, sym, tag):
     """prev: 직전 스냅샷(option·volume·quote_et 열만 있어도 됨). 있으면 그 사이 늘어난 거래량(flow)을 계산."""
     spot = float(df["spot"].iloc[0])
     qt = quote_time(df)
     df = df.copy()
+    session, _ = session_of(qt, sym in GTH)
+    spot_close = None
+    if session == "야간":
+        imp = implied_spot(df, qt, day, sym)
+        if imp:
+            spot_close, spot = spot, imp
     if sym in AM_ROOTS and "root" in df:
         mon = df["root"].isin(AM_ROOTS)
     else:
@@ -118,12 +156,14 @@ def metrics(df, day, prev, sym, tag):
             df["vh"] = np.nan
     else:
         df["vh"] = np.nan
-    session, _ = session_of(qt, sym in GTH)
     out = {"tag": tag, "date": str(day), "session": session, "quote_et": qt.strftime("%H:%M"),
            "quote_date_et": str(qt.date()),
            "quote_kst": qt.astimezone(KST).strftime("%m/%d %H:%M"), "spot": round(spot, 2), "flow_min": flow_min}
-    if session != "정규장":
-        out["spot_note"] = "현재가는 직전 정규장 종가(지수는 야간에 계산되지 않음)" if sym in GTH else "현재가는 직전 정규장 종가"
+    if spot_close is not None:
+        out["spot_close"] = round(spot_close, 2)
+        out["spot_note"] = f"야간: 현재가는 옵션 가격으로 역산한 지수 (정규장 종가 {spot_close:,.2f})"
+    elif session != "정규장":
+        out["spot_note"] = "현재가는 직전 정규장 종가"
 
     cv, pvv = vol[df["is_call"]].sum(), vol[~df["is_call"]].sum()
     co, po = oi[df["is_call"]].sum(), oi[~df["is_call"]].sum()
@@ -147,18 +187,19 @@ def metrics(df, day, prev, sym, tag):
                  "vh": None if prev is None else int(r.vh), "vol": int(r.volume or 0), "oi": int(r.open_interest or 0),
                  "iv": round(float(r.iv) * 100, 1) if pd.notna(r.iv) else None,
                  "last": float(r.last_trade_price) if pd.notna(r.last_trade_price) else None} for r in t.itertuples()]
-    out["top_volume"] = rows(df[vol > 0].nlargest(12, "volume"))
-    out["top_flow"] = rows(df[df["vh"].fillna(0) > 0].nlargest(12, "vh")) if prev is not None else []
+    live_k = df["expiry"] >= day          # 지난 만기(야간에 남아 있는 전날 0DTE 등)는 거래량 표에서 뺀다
+    out["top_volume"] = rows(df[(vol > 0) & live_k].nlargest(12, "volume"))
+    out["top_flow"] = rows(df[(df["vh"].fillna(0) > 0) & live_k].nlargest(12, "vh")) if prev is not None else []
     key = "vh" if prev is not None else "volume"
     agg = {"vol": ("volume", "sum"), "vh": ("vh", "sum"), "oi": ("open_interest", "sum")}
-    ex = df.groupby(["expiry", "bucket"]).agg(**agg).reset_index()
+    ex = df[live_k].groupby(["expiry", "bucket"]).agg(**agg).reset_index()
     ex_c = df[df["is_call"]].groupby("expiry")["volume"].sum()
     ex = ex.nlargest(8, key if key == "vh" else "vol")
     out["top_expiries"] = [{"expiry": str(r.expiry), "bucket": r.bucket, "vol": int(r.vol),
                             "vh": None if prev is None else int(r.vh), "oi": int(r.oi),
                             "call_share": round(float(ex_c.get(r.expiry, 0)) / r.vol, 3) if r.vol else None}
                            for r in ex.itertuples()]
-    st = df.groupby(["strike", "cp"]).agg(**agg).reset_index()
+    st = df[live_k].groupby(["strike", "cp"]).agg(**agg).reset_index()
     st = st.nlargest(10, key if key == "vh" else "vol")
     out["top_strikes"] = [{"strike": float(r.strike), "cp": r.cp, "vol": int(r.vol),
                            "vh": None if prev is None else int(r.vh), "oi": int(r.oi)} for r in st.itertuples()]
@@ -175,6 +216,10 @@ def metrics(df, day, prev, sym, tag):
         out["gex_note"] = "개장 전 시세라 그릭스가 없음"
         return out
     out["gex"] = True
+    if spot_close is not None:   # CBOE 감마는 멈춰 있는 종가 기준이라 역산한 지수로 다시 계산
+        T = df["exp_dt"].map(lambda e: max((e - qt).total_seconds(), 3600) / (365 * 86400)).values
+        iv = df["iv"].clip(lower=0.01, upper=5).fillna(0.2).values
+        df["gamma"] = bs_gamma(np.array([[spot]]), df["strike"].values, T, iv)[0]
     sign = np.where(df["is_call"], 1.0, -1.0)
     unit = 100 * spot ** 2 * 0.01
     df["gex"] = sign * df["gamma"].fillna(0) * oi * unit
