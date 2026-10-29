@@ -143,9 +143,10 @@ def implied_spot(df, qt, day, sym):
     return float(f * np.exp(-(R - DIV.get(sym, 0.0)) * T)) if f else None
 
 
-def metrics(df, day, prev, sym, tag, prevs=None):
+def metrics(df, day, prev, sym, tag, prevs=None, prev_day=None):
     """prev: 직전 스냅샷(option·volume·quote_et 열만 있어도 됨). 있으면 그 사이 늘어난 거래량(flow)을 계산.
-    prevs: {창 이름: 그만큼 전 스냅샷 또는 None} → 창마다 유입 상위(flows)를 따로 만든다(실시간용)."""
+    prevs: {창 이름: 그만큼 전 스냅샷 또는 None} → 창마다 유입 상위(flows)를 따로 만든다(실시간용).
+    prev_day: (전 거래일, 그날 마지막 스냅샷) → flows["close"] = 오늘 거래량 − 전일 정규장 거래량(전일 대비 늘어난 계약)."""
     spot = float(df["spot"].iloc[0])
     qt = quote_time(df)
     df = df.copy()
@@ -228,8 +229,18 @@ def metrics(df, day, prev, sym, tag, prevs=None):
             t = df.assign(vh=(vol - pv).clip(lower=0))
             t = t[(t["vh"] > 0) & live_k]
             out["flows"][key] = {"min": round((qt - quote_time(pdf)).total_seconds() / 60), "rows": rows(t.nlargest(12, "vh"), True)}
-        t = df.assign(vh=vol)[(vol > 0) & live_k]
-        out["flows"]["close"] = {"min": None, "rows": rows(t.nlargest(12, "vh"), True)}
+        if prev_day is not None and session == "정규장":
+            pdate, pdf = prev_day
+            pv = df["option"].map(pdf.drop_duplicates("option").set_index("option")["volume"].fillna(0)).fillna(0)
+            t = df.assign(vh=vol - pv, pv=pv)
+            t = t[(t["vh"] > 0) & live_k].nlargest(12, "vh")
+            rs = rows(t, True)
+            for r, x in zip(rs, t["pv"]):
+                r["pv"] = int(x)
+            out["flows"]["close"] = {"min": None, "vs": str(pdate), "rows": rs}
+        else:   # 전일 기록이 없거나 정규장 밖: 지금 남아 있는 거래량(그 세션 누적) 상위
+            t = df.assign(vh=vol)[(vol > 0) & live_k]
+            out["flows"]["close"] = {"min": None, "rows": rows(t.nlargest(12, "vh"), True)}
     key = "vh" if prev is not None else "volume"
     agg = {"vol": ("volume", "sum"), "vh": ("vh", "sum"), "oi": ("open_interest", "sum")}
     ex = df[live_k].groupby(["expiry", "bucket"]).agg(**agg).reset_index()
