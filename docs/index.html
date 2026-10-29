@@ -361,11 +361,20 @@ async function load(sym){
   try { localStorage.setItem("gex.sym", sym); } catch(e){}
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.s === sym));
   [st.live, st.hourly] = await Promise.all([getLive(sym), getJSON(`${RAW}/main/docs/gex/${sym}.json`)]);
-  st.next = POLL; render();
+  st.next = nextPoll(); render();
+}
+// 다음 확인 시각: 서버가 1분마다 올리니 마지막 게시 시각 + 70초(게시가 끝나는 데 몇 초 걸린다)에 맞춘다.
+// 고정 60초 간격이면 새 값이 올라온 뒤 평균 30초를 더 기다린다. 마지막 게시가 오래됐으면(장 마감 등) 60초 간격
+function nextPoll(){
+  const u = st.live?.updated_kst; if (!u) return POLL;
+  const due = (new Date(u.replace(" ", "T") + "+09:00").getTime() + 70000 - Date.now()) / 1000;
+  if (due >= 5 && due <= POLL + 15) return Math.round(due);
+  return due > -30 && due < 5 ? 10 : POLL;   // 올라올 때가 막 지났는데 아직이면 10초 뒤 한 번 더
 }
 async function refresh(){
   if (document.hidden) return;   // 보이지 않는 탭은 쉬어서 한도를 아낀다
   const l = await getLive(st.sym); if (l) st.live = l;
+  st.next = nextPoll();
   if (new Date().getMinutes() % 10 === 0) { const h = await getJSON(`${RAW}/main/docs/gex/${st.sym}.json`); if (h) st.hourly = h; }
   render();
 }
