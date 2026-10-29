@@ -24,6 +24,7 @@ ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
 R = 0.04                         # 무위험이자율 근사 (감마는 금리에 거의 둔감)
 BAND = 0.12                      # 대시보드에 그리는 행사가: 현재가 ±12%
+BAND_SYM = {"TSLA": 0.25}        # 월물 행사가 간격이 5달러로 넓은 종목은 더 넓게 (위아래 10개 이상)
 GRID = np.linspace(0.88, 1.12, 97)   # 가격 시나리오(감마 프로파일)
 NO_GEX = {"VIX"}                 # VIX 옵션은 VIX 선물이 기초자산이라 현물 감마 계산이 맞지 않음
 DASH = ["SPX", "TSLA"]           # 대시보드 종목
@@ -235,7 +236,8 @@ def metrics(df, day, prev, sym, tag):
         tot[b] = {"call": _m(c), "put": _m(p), "net": _m(c + p)}
     out["total"] = tot
 
-    band = df[(df["strike"] >= spot * (1 - BAND)) & (df["strike"] <= spot * (1 + BAND))]
+    bw = BAND_SYM.get(sym, BAND)
+    band = df[(df["strike"] >= spot * (1 - bw)) & (df["strike"] <= spot * (1 + bw))]
     out["strikes"] = {}
     for b in ("monthly", "0dte", "all"):
         s = band if b == "all" else band[band["bucket"] == b]
@@ -272,12 +274,18 @@ def metrics(df, day, prev, sym, tag):
 
 
 FRAME_BAND = {"SPX": 0.02, "TSLA": 0.06}
+FRAME_N = 25                       # 그리고 월물 행사가가 현재가 위아래로 최소 이만큼은 들어가게 넓힌다
 
 
 def frame_of(m, qt, band):
-    """한 시점의 행사가별 순 GEX(현재가 ±band)와 요약. 화면에서 지난 시점을 고를 때 쓴다."""
+    """한 시점의 행사가별 순 GEX(현재가 ±band, 월물 행사가 위아래 FRAME_N개 이상)와 요약. 화면에서 지난 시점을 고를 때 쓴다."""
     spot, st = m["spot"], m["strikes"]
-    ks = [k for k in st["all"]["k"] if spot * (1 - band) <= k <= spot * (1 + band)]
+    lo, hi = spot * (1 - band), spot * (1 + band)
+    mk = sorted((st.get("monthly") or {}).get("k") or [])
+    if mk:
+        i = sum(1 for k in mk if k < spot)
+        lo, hi = min(lo, mk[max(0, i - FRAME_N)]), max(hi, mk[min(len(mk) - 1, i + FRAME_N - 1)])
+    ks = [k for k in st["all"]["k"] if lo <= k <= hi]
     def nets(b):
         d = st.get(b) or {"k": [], "c": [], "p": []}
         mp = {k: round((c or 0) + (p or 0), 1) for k, c, p in zip(d["k"], d["c"], d["p"])}
