@@ -78,7 +78,7 @@ def have(out_dir, name, day, tag):
     return os.path.exists(p) or os.path.exists(p[:-3])
 
 
-def collect(tag, day, out_dir=OUT_DIR):
+def collect(tag, day, out_dir=OUT_DIR, check_fresh=True):
     """종목별로 한 번 수집. 이미 있는 파일은 건드리지 않는다(뒤늦게 뜬 예비 잡의 덮어쓰기 방지). 실패 수를 반환."""
     fails = 0
     for sym in TICKERS:
@@ -89,7 +89,7 @@ def collect(tag, day, out_dir=OUT_DIR):
         try:
             for attempt in range(3):   # CBOE가 묵은 파일을 주면(9/23 사고) 저장하지 않음
                 df, ts = fetch(sym)
-                if is_fresh(ts.astimezone(ET), datetime.now(ET), day):
+                if not check_fresh or is_fresh(ts.astimezone(ET), datetime.now(ET), day):
                     break
                 print(f"[stale] {name} {tag}: CBOE 파일 시각 {ts.astimezone(ET):%m-%d %H:%M} ET, 30초 뒤 재시도", flush=True)
                 time.sleep(30)
@@ -133,9 +133,9 @@ def main():
     day = now.date()
 
     if mode == "test":
-        fails = collect(f"test{now:%H%M}", day, out_dir="data/_test")
+        fails = collect(f"test{now:%H%M}", day, out_dir="data/_test", check_fresh=False)   # 새벽에도 경로를 시험할 수 있게
         import gex
-        gex.build_day(day, data_dir="data/_test", out_dir="data/_test/docs", verbose=True)
+        gex.build_day(day, data_dir="data/_test", out_dir="data/_test/docs", verbose=True, strict=False)
         sys.exit(1 if fails else 0)
 
     if not is_trading_day(day):

@@ -204,12 +204,12 @@ def symbols(data_dir):
                   if os.path.isdir(os.path.join(data_dir, d)) and not d.startswith("_") and d != "docs")
 
 
-def day_slots(data_dir, sym, day, verbose=False):
+def day_slots(data_dir, sym, day, verbose=False, strict=True):
     slots, prev = [], None
     for f in day_files(data_dir, sym, day):
         try:
             df = load(f)
-            if df.empty or is_stale(df, day):
+            if df.empty or (strict and is_stale(df, day)):
                 print(f"[gex] {sym} {day} {tag_of(f)}: 묵은 시세라 제외", flush=True)
                 continue
             slots.append(metrics(df, day, prev, sym, tag_of(f)))
@@ -280,10 +280,10 @@ def write_index(out_dir):
                   ensure_ascii=False, separators=(",", ":"))
 
 
-def build_day(day, data_dir="data", out_dir="docs/gex", verbose=False):
+def build_day(day, data_dir="data", out_dir="docs/gex", verbose=False, strict=True):
     os.makedirs(out_dir, exist_ok=True)
     for sym in symbols(data_dir):
-        slots = day_slots(data_dir, sym, day, verbose)
+        slots = day_slots(data_dir, sym, day, verbose, strict)
         if not slots:
             continue
         h = save_history(out_dir, sym, hist_rows(day, slots), [day])
