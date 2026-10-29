@@ -100,35 +100,47 @@ def expiry_dt(df):
 DIV = {"SPX": 0.012}   # 배당수익률 근사 (선도가 → 현물 환산용)
 
 
-def implied_spot(df, qt, day, sym):
-    """가장 가까운 월물의 풋콜 패리티로 지수를 역산한다: F = K + (콜 중간가 − 풋 중간가)·e^(rT), S = F·e^(−(r−q)T).
-    야간에는 지수가 계산되지 않아 CBOE 현재가가 전날 종가에 멈춰 있으므로 이 값을 현재가로 쓴다.
-    정규장 데이터로 검증하면 실제 가격과 0.1% 안쪽으로 맞는다."""
-    d = df[(df["expiry"] > day) & df["expiry"].map(is_monthly)]
-    if sym in AM_ROOTS and "root" in d:   # 셋째 금요일엔 SPX(AM)와 SPXW(PM)가 같이 있어 행사가가 겹친다
-        d = d[d["root"].isin(AM_ROOTS)]
-    if d.empty:
-        return None
-    e = d["expiry"].min()
-    m = d[d["expiry"] == e]
-    T = (datetime.combine(e, dtime(16, 0), ET) - qt).total_seconds() / (365 * 86400)
-    s0 = float(df["spot"].iloc[0])
+def _parity(m, qt, e, s0, band, spread, close_t):
+    """한 만기의 풋콜 패리티로 지수를 역산: F = K + (콜 중간가 − 풋 중간가)·e^(rT). 현재가 ±band 행사가의 중앙값."""
+    T = (datetime.combine(e, close_t, ET) - qt).total_seconds() / (365 * 86400)
     c = m[m["cp"] == "C"].drop_duplicates("strike").set_index("strike")
     p = m[m["cp"] == "P"].drop_duplicates("strike").set_index("strike")
     fs = []
     for k in c.index.intersection(p.index):
-        if abs(k / s0 - 1) > 0.04:
+        if abs(k / s0 - 1) > band:
             continue
         cb, ca, pb, pa = (float(x) for x in (c.at[k, "bid"], c.at[k, "ask"], p.at[k, "bid"], p.at[k, "ask"]))
         if min(cb, ca, pb, pa) <= 0:
             continue
         cm, pm = (cb + ca) / 2, (pb + pa) / 2
-        if (ca - cb) / cm > 0.1 or (pa - pb) / pm > 0.1:
+        if (ca - cb) / cm > spread or (pa - pb) / pm > spread:
             continue
         fs.append(k + (cm - pm) * np.exp(R * T))
-    if len(fs) < 3:
+    return (float(np.median(fs)), T) if len(fs) >= 3 else (None, T)
+
+
+def implied_spot(df, qt, day, sym):
+    """풋콜 패리티로 지수를 역산한다. 야간에는 지수가 계산되지 않아 CBOE 현재가가 전날 종가에 멈춰 있으므로 이 값을 현재가로 쓴다.
+    가장 가까운 만기(2시간 이상 남은 것)를 먼저 쓴다. 남은 기간이 하루 안팎이라 금리·배당 가정 오차가 거의 없다.
+    정규장 SPY로 검증하면 실제 가격과 0.001~0.005%(SPX 7,700 기준 0.1~0.4pt)로 맞는다.
+    3주 뒤 월물을 쓰면 같은 데이터에서 0.01~0.09%(최대 7pt)까지 벌어졌다. 가까운 만기에서 못 구하면 월물로 대신한다."""
+    s0 = float(df["spot"].iloc[0])
+    d = df
+    if sym in AM_ROOTS and "root" in d:   # 가까운 만기는 PM 정산(SPXW)만. 셋째 금요일엔 SPX(AM)와 행사가가 겹친다
+        d = d[~d["root"].isin(AM_ROOTS)]
+    exps = sorted(e for e in d["expiry"].unique() if datetime.combine(e, dtime(16, 0), ET) - qt > timedelta(hours=2))
+    for e in exps[:3]:
+        f, T = _parity(d[d["expiry"] == e], qt, e, s0, 0.015, 0.05, dtime(16, 0))
+        if f:
+            return float(f * np.exp(-(R - DIV.get(sym, 0.0)) * T))
+    m = df[(df["expiry"] > day) & df["expiry"].map(is_monthly)]
+    if sym in AM_ROOTS and "root" in m:
+        m = m[m["root"].isin(AM_ROOTS)]
+    if m.empty:
         return None
-    return float(np.median(fs) * np.exp(-(R - DIV.get(sym, 0.0)) * T))
+    e = m["expiry"].min()
+    f, T = _parity(m[m["expiry"] == e], qt, e, s0, 0.04, 0.1, dtime(16, 0))
+    return float(f * np.exp(-(R - DIV.get(sym, 0.0)) * T)) if f else None
 
 
 def metrics(df, day, prev, sym, tag, prevs=None):
