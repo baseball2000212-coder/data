@@ -1,7 +1,7 @@
 """지난 날 보관본(docs/archive/<종목>/<날짜>.json)에 비어 있는 1분봉을 채운다.
 
 1) live 브랜치에 그날 CBOE 1분봉(콜·풋 거래량 포함)이 남아 있으면 그걸 쓴다.
-2) 없으면 Yahoo Finance 차트(정규장 1분봉, 최근 30일까지)로 채운다. 30일보다 오래된 날은 2분봉(60일까지)으로 채운다.
+2) 없으면 Yahoo Finance 차트(정규장 1분봉, 최근 30일까지)로 채운다. 그보다 오래된 날은 받을 수 있는 가장 짧은 봉(2분 → 5분 → 15분)으로 채운다.
 CBOE 1분봉 API는 당일분만 주기 때문에 지난 날은 이렇게 메운다.
 
   python backfill_bars.py            # TSLA 전체
@@ -77,7 +77,7 @@ def fill(sym, days=None):
         bars, ival, src = [b for b in lb if b[0][:10] == day], 1, "CBOE"
         if len(bars) < 300:
             bars, src = [], "Yahoo"
-            for ival in (1, 2):
+            for ival in (1, 2, 5, 15):
                 bars = yahoo_bars(YAHOO[sym], day, f"{ival}m")
                 if bars:
                     break
