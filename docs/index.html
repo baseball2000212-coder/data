@@ -475,7 +475,7 @@ function kpis(s, gx){
   const items = [["Spot", s.spot, chg == null ? `${s.quote_et} ET` : `<span class="${chg>=0?"up":"dn"}">${chg>=0?"+":""}${chg.toFixed(2)}%</span> · ${s.quote_et} ET`, "", spotInfo]];
   if (gx){
     items.push(["Net GEX", money(t.net), `${BUCKET_KO[b]} · ${t.net>=0 ? "Positive" : "Negative"} gamma`, sgn(t.net),
-      ["현재가가 1% 움직일 때 딜러가 헤지로 사고팔아야 하는 금액", "양(+)이면 오르면 팔고 내리면 사서 변동을 줄이는 쪽", "음(−)이면 같은 방향으로 따라 매매해 변동을 키우는 쪽", "딜러가 콜은 매수·풋은 매도한 상태라는 통상 가정"]]);
+      [...(s.gex_note ? [s.gex_note] : []), "현재가가 1% 움직일 때 딜러가 헤지로 사고팔아야 하는 금액", "양(+)이면 오르면 팔고 내리면 사서 변동을 줄이는 쪽", "음(−)이면 같은 방향으로 따라 매매해 변동을 키우는 쪽", "딜러가 콜은 매수·풋은 매도한 상태라는 통상 가정"]]);
     items.push(["Gamma Flip", flip ?? "–", flip ? (s.spot>=flip ? `Spot ${(s.spot-flip).toFixed(1)} above` : `Spot ${(flip-s.spot).toFixed(1)} below`) : "Out of range", "",
       ["가격이 움직일 때 순 GEX가 0이 되는 가격", "이 위에서는 양(+) 감마, 아래에서는 음(−) 감마", "현재가가 플립 아래로 내려가면 변동이 커지기 쉽다는 관점이 있지만 참고 지표"]]);
     const [cw, pw] = s.walls?.[b] || [s.call_wall, s.put_wall];

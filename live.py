@@ -107,6 +107,14 @@ class Live:
                 prevs = {k: self.before(s, name, day, qt, timedelta(minutes=w)) for k, w in FLOW_WINS.items()}
                 snaps.append((qt, df[["option", "volume", "quote_et"]].copy(), day))
                 m = gex.metrics(df, day, prev, name, "live", prevs=prevs)
+                last = (self.docs.get(name) or {}).get("live") or {}
+                if m.get("gex") is False and last.get("gex") and last.get("date") == str(day) and name not in gex.NO_GEX:
+                    # 장 시작 첫 시세처럼 CBOE 그릭스가 잠깐 비는 분: 차트가 사라지지 않게 직전 계산값을 이어 쓴다
+                    for k in ("total", "strikes", "walls", "call_wall", "put_wall", "profile", "flip"):
+                        if k in last:
+                            m[k] = last[k]
+                    m["gex"] = True
+                    m["gex_note"] = f"이번 시세({m['quote_et']} ET)는 그릭스가 비어 있어 GEX는 {last.get('quote_et')} ET 계산값"
                 t = m.get("total") or {}
                 ser = [x for x in self.series[s] if x.get("date") == str(day) and x.get("t") != m["quote_et"]]
                 ser.append({"date": str(day), "t": m["quote_et"], "spot": m["spot"],
