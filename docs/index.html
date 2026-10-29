@@ -12,19 +12,19 @@
   --bg:#FFFFFF; --ink:#222222; --sub:#45515E; --mute:#8E8E93; --faint:#A9AEB8;
   --line:#ECEEF2; --line2:#F0F2F5; --panel:#F5F7FA; --tint:#EFF4FF;
   --blue:#1456F0; --navy:#17437D; --red:#E5383B; --orange:#E8590C; --pink:#C2389E; --pinkbg:#FDF2FA;
-  --card:#FFFFFF; --shadow:0 4px 18px rgba(20,40,90,.06);
+  --green:#12A150; --card:#FFFFFF; --shadow:0 4px 18px rgba(20,40,90,.06);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
     --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
-    --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --shadow:none;
+    --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --shadow:none;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
   --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
-  --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --shadow:none;
+  --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --shadow:none;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans KR",system-ui,sans-serif;
@@ -32,19 +32,23 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans KR",s
 .wrap{max-width:1180px;margin:0 auto;padding:28px 16px 56px}
 header h1{font-weight:900;font-size:30px;margin:0 0 6px;letter-spacing:-.6px}
 header p{margin:0;color:var(--sub);font-size:15px}
-.meta{color:var(--mute);font-size:13px;margin-top:6px}
+.meta{color:var(--mute);font-size:13px;margin-top:8px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+#meta>span+span{margin-left:12px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:6px;vertical-align:1px}
+.dot.on{background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 25%,transparent)}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 14px}
-.tab{border:1.5px solid var(--line);background:var(--card);color:var(--sub);border-radius:999px;padding:7px 16px;
+.tab{border:1.5px solid var(--line);background:var(--card);color:var(--sub);border-radius:999px;padding:7px 18px;
   font:700 15px "Noto Sans KR";cursor:pointer}
 .tab .px{font-weight:500;color:var(--mute);margin-left:6px;font-size:13px}
 .tab.on{background:var(--blue);border-color:var(--blue);color:#fff}
 .tab.on .px{color:#DDE6FF}
 .controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-bottom:18px}
 .ctl-label{font-size:13px;color:var(--mute);font-weight:700;margin-right:8px}
-.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips{display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle}
 .chip{border:1.5px solid var(--line);background:var(--card);color:var(--sub);border-radius:10px;padding:5px 10px;
   font:500 13px "Noto Sans KR";cursor:pointer}
 .chip.on{background:var(--tint);border-color:var(--blue);color:var(--blue);font-weight:700}
+.chip.live.on{background:var(--green);border-color:var(--green);color:#fff}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
 .kpi{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
 .kpi .l{font-size:13px;color:var(--mute);font-weight:700}
@@ -72,21 +76,21 @@ th:first-child,td:first-child{text-align:left}
   font-size:13.5px;color:var(--sub);line-height:1.7}
 .note b{color:var(--ink)}
 .hide{display:none!important}
-.empty{color:var(--mute);font-size:14px;padding:30px 0;text-align:center}
+.empty{color:var(--mute);font-size:14px;padding:24px 0;text-align:center}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>옵션 감마 대시보드</h1>
-    <p>미국 ETF·종목 옵션의 딜러 감마 노출(GEX) · 기본은 월물 만기 기준 · 1시간 간격</p>
-    <div class="meta" id="meta">불러오는 중…</div>
+    <p>SPX·TSLA 옵션의 딜러 감마 노출(GEX) · 월물 만기 기준 · 1분 갱신 (CBOE 시세 15분 지연)</p>
+    <div class="meta"><span id="meta">불러오는 중…</span><span id="tick"></span></div>
   </header>
 
   <div class="tabs" id="tabs"></div>
 
   <div class="controls">
-    <div><span class="ctl-label">회차 (시세 기준 ET)</span><span class="chips" id="slots"></span></div>
+    <div><span class="ctl-label">시점</span><span class="chips" id="slots"></span></div>
     <div id="bucketCtl"><span class="ctl-label">만기</span><span class="chips" id="buckets"></span></div>
   </div>
 
@@ -95,7 +99,7 @@ th:first-child,td:first-child{text-align:left}
   <div id="gexArea">
     <div class="card">
       <h2>행사가별 감마 노출</h2>
-      <p class="d" id="strikeDesc">현재가 1% 변동당 딜러 헤지 금액(백만 달러). 콜 +, 풋 −</p>
+      <p class="d">현재가 1% 변동당 딜러 헤지 금액(백만 달러). 콜 +, 풋 −</p>
       <div class="chart"><canvas id="cStrike"></canvas></div>
     </div>
     <div class="grid2">
@@ -105,66 +109,77 @@ th:first-child,td:first-child{text-align:left}
         <div class="chart sm"><canvas id="cProfile"></canvas></div>
       </div>
       <div class="card">
-        <h2>오늘 회차별 추이</h2>
-        <p class="d">순 GEX(막대)와 현재가(선). OI는 장중 고정이라 변화는 가격·변동성 때문</p>
+        <h2>오늘 추이</h2>
+        <p class="d" id="intraDesc">월물 순 GEX와 현재가. 미결제약정은 장중 고정이라 변화는 가격·변동성 때문</p>
         <div class="chart sm"><canvas id="cIntraday"></canvas></div>
       </div>
     </div>
     <div class="card">
-      <h2>일별 추이 (마감 회차)</h2>
-      <p class="d">월물 순 GEX와 현재가, 최근 90거래일</p>
+      <h2>일별 추이 (마감 기준)</h2>
+      <p class="d">월물 순 GEX, 현재가, 감마 전환점 · 최근 90거래일</p>
       <div class="chart sm"><canvas id="cHistory"></canvas></div>
     </div>
   </div>
 
-  <div class="card">
-    <h2 id="topTitle">이번 회차 거래량 상위 계약</h2>
-    <p class="d" id="topDesc">직전 회차 대비 늘어난 거래량. 미결제보다 크게 들어온 계약은 오늘 새로 잡힌 포지션일 가능성이 크다</p>
-    <div class="tbl"><table id="tTop"></table></div>
+  <div class="grid2">
+    <div class="card">
+      <h2>거래량 상위 (오늘 누적)</h2>
+      <p class="d">장 시작부터 지금까지 가장 많이 거래된 계약</p>
+      <div class="tbl"><table id="tVol"></table></div>
+    </div>
+    <div class="card">
+      <h2 id="flowTitle">유입 상위 (flow)</h2>
+      <p class="d" id="flowDesc">최근 몇 분 동안 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다</p>
+      <div class="tbl"><table id="tFlow"></table></div>
+    </div>
   </div>
   <div class="grid2">
     <div class="card">
       <h2>만기별 거래량</h2>
-      <p class="d">이번 회차 증가분 순. 콜 비중이 높을수록 콜 쪽 거래</p>
+      <p class="d">유입이 많은 순. 콜 비중이 높을수록 콜 쪽 거래</p>
       <div class="tbl"><table id="tExp"></table></div>
     </div>
     <div class="card">
       <h2>행사가별 거래량</h2>
-      <p class="d">만기를 합친 행사가·콜풋별 거래량</p>
+      <p class="d">만기를 합친 행사가·콜풋별 거래량, 유입이 많은 순</p>
       <div class="tbl"><table id="tStrike"></table></div>
     </div>
   </div>
 
   <div class="note">
     <b>계산 방법</b> — GEX = 감마 × 미결제약정 × 100 × 현재가² × 1%. 딜러가 콜은 매수, 풋은 매도한 상태라는 통상 가정으로 콜 +, 풋 −.
-    순 GEX가 <b>양(+)</b>이면 딜러가 오르면 팔고 내리면 사서 변동을 줄이는 쪽, <b>음(−)</b>이면 반대로 변동을 키우는 쪽이다.
-    개별 종목(TSLA·NVDA 등)은 개인의 콜 매수가 많아 딜러가 콜을 판 상태일 수 있으니 콜·풋 막대를 따로 보고 판단한다.<br>
-    <b>월물 기준인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 생기고 오늘 사라지는 0DTE 포지션은 잡히지 않는다. 그래서 헤지 포지션이 남아 있는 월물(셋째 금요일 만기)을 기본으로 보고, 0DTE·위클리는 거래량 표로 본다.<br>
-    <b>시세</b> — CBOE 무료 시세라 15분 늦다. 회차 이름은 시세가 반영하는 시장 시각(ET). VIX 옵션은 VIX 선물이 기초자산이라 GEX를 계산하지 않는다.
+    순 GEX가 <b>양(+)</b>이면 딜러가 오르면 팔고 내리면 사서 변동을 줄이는 쪽, <b>음(−)</b>이면 변동을 키우는 쪽이다.
+    TSLA처럼 개인 콜 매수가 많은 종목은 딜러가 콜을 판 상태일 수 있으니 콜·풋 막대를 따로 보고 판단한다.<br>
+    <b>월물 기준인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 생기고 사라지는 0DTE 포지션은 잡히지 않는다. 그래서 헤지 포지션이 남아 있는 월물(SPX는 AM 정산 월물 루트 SPX, TSLA는 셋째 금요일)을 기본으로 보고, 0DTE·위클리는 거래량 표로 본다.<br>
+    <b>시세</b> — CBOE 무료 시세라 15분 늦다. 시각은 모두 시세가 반영하는 시장 시각(ET). 장중에는 1분마다 다시 계산하고, 매시 스냅샷은 원자료와 함께 저장한다.
   </div>
 </div>
 
 <script>
+const RAW = "https://raw.githubusercontent.com/baseball2000212-coder/data";
+const SYMS = ["SPX", "TSLA"];
+const POLL = 60;
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const BUCKETS = [["monthly","월물"],["all","전체 만기"]];
 const BUCKET_KO = {monthly:"월물", weekly:"위클리", "0dte":"0DTE"};
-const st = {sym:null, doc:null, slot:-1, bucket:"monthly", charts:{}};
+const st = {sym:null, live:null, hourly:null, view:"live", bucket:"monthly", charts:{}, next:POLL};
 
 const fmtM = v => v==null ? "–" : (Math.abs(v)>=1000 ? (v/1000).toFixed(2)+"B" : Math.round(v)+"M");
 const money = v => v==null ? "–" : (v<0 ? "−$" : "$") + fmtM(Math.abs(v));
 const sgn = v => v==null ? "" : (v>0 ? "pos" : v<0 ? "neg" : "");
 const n0 = v => v==null ? "–" : Number(v).toLocaleString("en-US");
-const kst = s => s ? `KST ${s}` : "";
 
 const vlines = {id:"vlines", afterDatasetsDraw(c){
-  const L = c.options.plugins.vlines?.lines || []; const {ctx, chartArea:{top,bottom}, scales:{x}} = c;
+  const L = c.options.plugins.vlines?.lines || []; const {ctx, chartArea:{top,bottom,left,right}, scales:{x}} = c;
   L.forEach(l => { if (l.v==null) return; const px = x.getPixelForValue(l.v);
-    if (px < c.chartArea.left || px > c.chartArea.right) return;
+    if (px < left || px > right) return;
     ctx.save(); ctx.strokeStyle = l.color; ctx.lineWidth = 1.6; ctx.setLineDash(l.dash||[5,4]);
     ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = l.color; ctx.font = "700 12px 'Noto Sans KR'"; ctx.textAlign = l.align||"left";
-    ctx.fillText(l.label, px + (l.align==="right" ? -5 : 5), top + 12 + (l.row||0)*15); ctx.restore(); });
+    ctx.fillStyle = l.color; ctx.font = "700 12px 'Noto Sans KR'";
+    const w = ctx.measureText(l.label).width, flip = px + 5 + w > right;
+    ctx.textAlign = flip ? "right" : "left";
+    ctx.fillText(l.label, px + (flip ? -5 : 5), top + 12 + (l.row||0)*15); ctx.restore(); });
 }};
 Chart.register(vlines);
 
@@ -177,47 +192,63 @@ function baseOpts(){
     scales:{x:{grid:{color:grid}, ticks:{color:tick}}, y:{grid:{color:grid}, ticks:{color:tick}}}};
 }
 function draw(id, cfg){ st.charts[id]?.destroy(); st.charts[id] = new Chart($(id), cfg); }
+async function getJSON(u){ try { const r = await fetch(`${u}?t=${Date.now()}`, {cache:"no-store"}); return r.ok ? r.json() : null; } catch(e){ return null; } }
 
-async function getJSON(p){ const r = await fetch(`${p}?t=${Date.now()}`); if(!r.ok) throw new Error(p); return r.json(); }
-
-async function init(){
-  let idx;
-  try { idx = await getJSON("gex/index.json"); } catch(e){ $("#meta").textContent = "데이터가 아직 없습니다."; return; }
-  $("#tabs").innerHTML = idx.symbols.map(s =>
-    `<button class="tab" data-s="${s.symbol}">${s.symbol}<span class="px">${s.spot ?? ""}</span></button>`).join("");
-  $("#tabs").onclick = e => { const b = e.target.closest(".tab"); if (b) load(b.dataset.s); };
+function init(){
+  $("#tabs").innerHTML = SYMS.map(s => `<button class="tab" data-s="${s}">${s}<span class="px" id="px-${s}"></span></button>`).join("");
+  $("#tabs").onclick = e => { const b = e.target.closest(".tab"); if (b){ st.view = "live"; load(b.dataset.s); } };
   $("#buckets").innerHTML = BUCKETS.map(([k,l]) => `<button class="chip" data-b="${k}">${l}</button>`).join("");
   $("#buckets").onclick = e => { const b = e.target.closest(".chip"); if (b){ st.bucket = b.dataset.b; render(); } };
-  $("#slots").onclick = e => { const b = e.target.closest(".chip"); if (b){ st.slot = +b.dataset.i; render(); } };
+  $("#slots").onclick = e => { const b = e.target.closest(".chip"); if (b){ st.view = b.dataset.v === "live" ? "live" : +b.dataset.v; render(); } };
   let saved = null; try { saved = localStorage.getItem("gex.sym"); } catch(e){}
-  const first = idx.symbols.find(s => s.symbol === saved) ? saved : idx.symbols[0]?.symbol;
-  if (first) load(first);
+  load(SYMS.includes(saved) ? saved : SYMS[0]);
+  setInterval(() => { st.next -= 1; if (st.next <= 0){ st.next = POLL; refresh(); } $("#tick").textContent = `다음 갱신 ${st.next}초`; }, 1000);
 }
 
 async function load(sym){
   st.sym = sym; try { localStorage.setItem("gex.sym", sym); } catch(e){}
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.s === sym));
-  st.doc = await getJSON(`gex/${sym}.json`); st.slot = st.doc.slots.length - 1; render();
+  [st.live, st.hourly] = await Promise.all([getJSON(`${RAW}/live/${sym}.json`), getJSON(`${RAW}/main/docs/gex/${sym}.json`)]);
+  if (!st.live && st.view === "live") st.view = st.hourly?.slots?.length ? st.hourly.slots.length - 1 : "live";
+  st.next = POLL; render();
+}
+async function refresh(){
+  const l = await getJSON(`${RAW}/live/${st.sym}.json`); if (l) st.live = l;
+  if (new Date().getMinutes() % 10 === 0) { const h = await getJSON(`${RAW}/main/docs/gex/${st.sym}.json`); if (h) st.hourly = h; }
+  render();
+}
+
+function current(){
+  if (st.view === "live") return st.live?.live || null;
+  return st.hourly?.slots?.[st.view] || null;
 }
 
 function render(){
-  const d = st.doc, s = d.slots[st.slot]; if (!s) return;
-  $("#meta").textContent = `${d.symbol} · ${d.date} (ET) · 시세 ${s.quote_et} ET (${kst(s.quote_kst)}) · 갱신 ${d.updated_kst} KST`;
-  $("#slots").innerHTML = d.slots.map((x,i) => `<button class="chip ${i===st.slot?"on":""}" data-i="${i}">${x.quote_et}</button>`).join("");
+  const s = current(), L = st.live, H = st.hourly;
+  if (L?.live) $(`#px-${st.sym}`).textContent = L.live.spot;
+  const chips = [];
+  if (L?.live) chips.push(`<button class="chip live ${st.view==="live"?"on":""}" data-v="live">실시간 ${L.live.quote_et}</button>`);
+  (H?.slots || []).forEach((x,i) => chips.push(`<button class="chip ${st.view===i?"on":""}" data-v="${i}">${x.quote_et}</button>`));
+  $("#slots").innerHTML = chips.join("") || `<span class="ctl-label">아직 데이터가 없습니다</span>`;
   document.querySelectorAll("#buckets .chip").forEach(c => c.classList.toggle("on", c.dataset.b === st.bucket));
-  const gx = d.gex && s.gex !== false && s.total;
+  if (!s){ $("#meta").textContent = "데이터를 기다리는 중입니다. 미국 장중(한국 밤)에 1분마다 갱신됩니다."; return; }
+  const isLive = st.view === "live";
+  $("#meta").innerHTML = `<span><span class="dot ${isLive && fresh(L) ? "on" : ""}"></span>${st.sym} · ${s.date || H?.date || ""} 시세 ${s.quote_et} ET (KST ${s.quote_kst})</span>` +
+    (isLive ? `<span>계산 ${L.updated_kst.slice(11)} KST</span>` : `<span>매시 스냅샷</span>`);
+  const gx = s.gex !== false && s.total;
   $("#gexArea").classList.toggle("hide", !gx); $("#bucketCtl").classList.toggle("hide", !gx);
-  kpis(d, s, gx);
-  if (gx){ strikeChart(s); profileChart(s); intradayChart(d); historyChart(d); }
-  tables(s);
+  kpis(s, gx);
+  if (gx){ strikeChart(s); profileChart(s); intradayChart(); historyChart(); }
+  tables(s, isLive);
 }
+function fresh(L){ if (!L?.updated_kst) return false; const t = new Date(L.updated_kst.replace(" ","T")+"+09:00"); return Date.now() - t < 5*60*1000; }
 
-function kpis(d, s, gx){
+function kpis(s, gx){
   const b = st.bucket, t = gx ? s.total[b] : null, flip = gx ? s.flip?.[b] : null;
   const items = [["현재가", s.spot, `시세 ${s.quote_et} ET`, ""]];
   if (gx){
     items.push([`순 GEX · ${b==="monthly"?"월물":"전체"}`, money(t.net), t.net>=0 ? "양(+) 감마: 변동 완화 쪽" : "음(−) 감마: 변동 확대 쪽", sgn(t.net)]);
-    items.push(["감마 전환점", flip ?? "–", flip ? (s.spot>=flip ? `현재가가 ${(s.spot-flip).toFixed(2)} 위` : `현재가가 ${(flip-s.spot).toFixed(2)} 아래`) : "범위 안에 없음", ""]);
+    items.push(["감마 전환점", flip ?? "–", flip ? (s.spot>=flip ? `현재가가 ${(s.spot-flip).toFixed(1)} 위` : `현재가가 ${(flip-s.spot).toFixed(1)} 아래`) : "범위 안에 없음", ""]);
     items.push(["콜월 (월물)", s.call_wall ?? "–", "콜 감마가 가장 큰 행사가", "pos"]);
     items.push(["풋월 (월물)", s.put_wall ?? "–", "풋 감마가 가장 큰 행사가", "neg"]);
   } else if (s.gex_note){ items.push(["GEX", "–", s.gex_note, ""]); }
@@ -251,18 +282,28 @@ function profileChart(s){
   draw("#cProfile", {type:"line", options:o, data:{datasets:ds}});
 }
 
-function intradayChart(d){
-  const sl = d.slots.filter(x => x.total); const o = baseOpts();
+function intradayChart(){
+  const key = st.bucket === "monthly" ? "net_m" : "net_all";
+  let pts = (st.live?.series || []);
+  const day = st.live?.live?.date;
+  pts = pts.filter(x => x.date === day);
+  let desc = "1분 간격";
+  if (pts.length < 2 && st.hourly?.slots?.length){
+    pts = st.hourly.slots.filter(x => x.total).map(x => ({t:x.quote_et, spot:x.spot, net_m:x.total.monthly.net, net_all:x.total.all.net}));
+    desc = "매시 스냅샷";
+  }
+  $("#intraDesc").textContent = `${st.bucket==="monthly"?"월물":"전체 만기"} 순 GEX(막대)와 현재가(선), ${desc}. 미결제약정은 장중 고정이라 변화는 가격·변동성 때문`;
+  const o = baseOpts();
   o.scales.y.ticks.callback = v => money(v);
   o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
-  draw("#cIntraday", {data:{labels:sl.map(x=>x.quote_et), datasets:[
-    {type:"bar", label:`순 GEX (${st.bucket==="monthly"?"월물":"전체"})`, data:sl.map(x=>x.total[st.bucket].net),
-     backgroundColor:sl.map(x=>x.total[st.bucket].net>=0?css("--red"):css("--blue")), yAxisID:"y"},
-    {type:"line", label:"현재가", data:sl.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2, pointRadius:3, yAxisID:"y2"}]}, options:o});
+  o.scales.x.ticks.maxTicksLimit = 8;
+  draw("#cIntraday", {data:{labels:pts.map(x=>x.t), datasets:[
+    {type:"bar", label:"순 GEX", data:pts.map(x=>x[key]), backgroundColor:pts.map(x=>x[key]>=0?css("--red"):css("--blue")), yAxisID:"y"},
+    {type:"line", label:"현재가", data:pts.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2, pointRadius:pts.length>30?0:3, yAxisID:"y2"}]}, options:o});
 }
 
-function historyChart(d){
-  const h = d.history.filter(x => x.net_monthly != null); const o = baseOpts();
+function historyChart(){
+  const h = (st.hourly?.history || []).filter(x => x.net_monthly != null); const o = baseOpts();
   o.scales.y.ticks.callback = v => money(v);
   o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
   o.scales.x.ticks.maxTicksLimit = 10;
@@ -274,26 +315,31 @@ function historyChart(d){
 
 const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
 const cp = c => c==="C" ? `<span class="c">콜</span>` : `<span class="p">풋</span>`;
+const ratio = r => r.oi ? (r.vol/r.oi).toFixed(1)+"배" : "신규";
 
-function tables(s){
-  const hour = s.vh_total != null;
-  $("#topTitle").textContent = hour ? "이번 회차 거래량 상위 계약" : "오늘 누적 거래량 상위 계약";
-  $("#topDesc").textContent = hour ? "직전 회차 대비 늘어난 거래량. 미결제보다 크게 들어온 계약은 오늘 새로 잡힌 포지션일 가능성이 크다"
-                                   : "그날 첫 회차라 누적 거래량 기준";
-  const T = s.top_contracts;
-  $("#tTop").innerHTML = T.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th>${hour?"<th>이번 회차</th>":""}<th>누적</th><th>미결제</th><th>거래/미결제</th><th>IV</th><th>최근가</th></tr>` +
-    T.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td>${hour?`<td><b>${n0(r.vh)}</b></td>`:""}
-      <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.oi ? (r.vol/r.oi).toFixed(1)+"배" : "신규"}</td><td>${r.iv ?? "–"}%</td><td>${r.last ?? "–"}</td></tr>`).join("")
-    : `<tr><td class="empty">이번 회차에 늘어난 거래가 없습니다 (장 마감 후).</td></tr>`;
-  $("#tExp").innerHTML = `<tr><th>만기</th>${hour?"<th>이번 회차</th>":""}<th>누적</th><th>콜 비중</th><th>미결제</th></tr>` +
-    s.top_expiries.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td>${hour?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>
+function tables(s, isLive){
+  const win = s.flow_min, flow = win != null;
+  $("#flowTitle").textContent = flow ? `유입 상위 (최근 ${win}분)` : "유입 상위 (flow)";
+  $("#flowDesc").textContent = flow ? `${isLive ? "최근" : "직전 스냅샷 이후"} ${win}분 동안 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다`
+                                    : "비교할 직전 시세가 없거나 장 마감 후라 유입을 계산하지 않았습니다.";
+  const V = s.top_volume || s.top_contracts || [];
+  $("#tVol").innerHTML = V.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th><th>누적</th><th>미결제</th><th>거래/미결제</th><th>IV</th><th>최근가</th></tr>` +
+    V.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vol)}</b></td>
+      <td>${n0(r.oi)}</td><td>${ratio(r)}</td><td>${r.iv ?? "–"}%</td><td>${r.last ?? "–"}</td></tr>`).join("")
+    : `<tr><td class="empty">거래가 없습니다.</td></tr>`;
+  const F = s.top_flow || [];
+  $("#tFlow").innerHTML = F.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th><th>유입</th><th>누적</th><th>미결제</th><th>IV</th><th>최근가</th></tr>` +
+    F.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vh)}</b></td>
+      <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.iv ?? "–"}%</td><td>${r.last ?? "–"}</td></tr>`).join("")
+    : `<tr><td class="empty">유입 데이터가 없습니다 (장중에만 계산).</td></tr>`;
+  $("#tExp").innerHTML = `<tr><th>만기</th>${flow?"<th>유입</th>":""}<th>누적</th><th>콜 비중</th><th>미결제</th></tr>` +
+    (s.top_expiries||[]).map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>
       <td>${r.call_share==null?"–":Math.round(r.call_share*100)+"%"}</td><td>${n0(r.oi)}</td></tr>`).join("");
-  $("#tStrike").innerHTML = `<tr><th>행사가</th><th>구분</th>${hour?"<th>이번 회차</th>":""}<th>누적</th><th>미결제</th></tr>` +
-    s.top_strikes.map(r => `<tr><td>${r.strike}</td><td>${cp(r.cp)}</td>${hour?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td><td>${n0(r.oi)}</td></tr>`).join("");
+  $("#tStrike").innerHTML = `<tr><th>행사가</th><th>구분</th>${flow?"<th>유입</th>":""}<th>누적</th><th>미결제</th></tr>` +
+    (s.top_strikes||[]).map(r => `<tr><td>${r.strike}</td><td>${cp(r.cp)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td><td>${n0(r.oi)}</td></tr>`).join("");
 }
 
 init();
-setInterval(() => st.sym && load(st.sym), 10 * 60 * 1000);
 </script>
 </body>
 </html>

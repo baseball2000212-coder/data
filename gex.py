@@ -9,7 +9,9 @@ GEX(현재가 1% 변동당 달러) = 감마 × 미결제약정 × 100 × 현재�
 딜러가 콜을 판 상태일 수 있어 부호가 반대일 수 있다. 그래서 콜·풋을 따로 보여준다.
 미결제약정(OI)은 전일 장 마감 기준이고 장중에 바뀌지 않는다(OCC가 밤사이 갱신). 장중 GEX 변화는
 포지션 변화가 아니라 가격·변동성 변화 때문이고, 오늘 새로 생긴 포지션은 회차별 거래량 증가분으로 본다.
-만기 구분: monthly = 셋째 금요일 월물(휴장이면 앞당김), 0dte = 오늘 만기 비월물, weekly = 나머지.
+만기 구분: monthly = 셋째 금요일 월물(휴장이면 앞당김. SPX는 AM 정산 월물 루트 `SPX`, 위클리는 `SPXW`),
+0dte = 오늘 만기 비월물, weekly = 나머지.
+대시보드는 DASH 종목(SPX·TSLA)만 만든다. 다른 종목은 원자료만 쌓는다.
 """
 import os, re, sys, glob, json
 import numpy as np
@@ -24,6 +26,8 @@ R = 0.04                         # 무위험이자율 근사 (감마는 금리�
 BAND = 0.12                      # 대시보드에 그리는 행사가: 현재가 ±12%
 GRID = np.linspace(0.88, 1.12, 97)   # 가격 시나리오(감마 프로파일)
 NO_GEX = {"VIX"}                 # VIX 옵션은 VIX 선물이 기초자산이라 현물 감마 계산이 맞지 않음
+DASH = ["SPX", "TSLA"]           # 대시보드 종목
+AM_ROOTS = {"SPX"}               # 셋째 금요일 아침(09:30) 시가로 정산하는 월물 루트
 HIST_DAYS = 90
 FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -81,25 +85,40 @@ def _m(x, nd=1):   # 달러 → 백만 달러
     return round(float(x) / 1e6, nd)
 
 
+def expiry_dt(df):
+    """계약별 만기 시각(ET). AM 정산 월물은 그날 09:30, 나머지는 16:00."""
+    am = df["root"].isin(AM_ROOTS) if "root" in df else pd.Series(False, index=df.index)
+    keys = pd.Series(list(zip(df["expiry"], am)), index=df.index)
+    cache = {k: datetime.combine(k[0], dtime(9, 30) if k[1] else dtime(16, 0), ET) for k in set(keys)}
+    return keys.map(cache)
+
+
 def metrics(df, day, prev, sym, tag):
+    """prev: 직전 스냅샷(option·volume·quote_et 열만 있어도 됨). 있으면 그 사이 늘어난 거래량(flow)을 계산."""
     spot = float(df["spot"].iloc[0])
     qt = quote_time(df)
     df = df.copy()
-    mon = df["expiry"].map(is_monthly)
+    if sym in AM_ROOTS and "root" in df:
+        mon = df["root"].isin(AM_ROOTS)
+    else:
+        mon = df["expiry"].map(is_monthly)
     df["bucket"] = np.where(mon, "monthly", np.where(df["expiry"] == day, "0dte", "weekly"))
     df["is_call"] = df["cp"] == "C"
+    df["exp_dt"] = expiry_dt(df)
     oi = df["open_interest"].fillna(0)
     vol = df["volume"].fillna(0)
+    flow_min = None
     if prev is not None:
         pv = df["option"].map(prev.set_index("option")["volume"].fillna(0)).fillna(0)
         df["vh"] = (vol - pv).clip(lower=0)
-        if df["vh"].sum() == 0:     # 장 마감 뒤 회차: 늘어난 거래가 없으니 누적 기준으로 보여준다
-            prev = None
+        flow_min = round((qt - quote_time(prev)).total_seconds() / 60)
+        if df["vh"].sum() == 0 or flow_min <= 0:   # 장 마감 뒤: 늘어난 거래가 없으니 누적만 보여준다
+            prev, flow_min = None, None
             df["vh"] = np.nan
     else:
         df["vh"] = np.nan
-    out = {"tag": tag, "quote_et": qt.strftime("%H:%M"), "quote_kst": qt.astimezone(KST).strftime("%m/%d %H:%M"),
-           "spot": round(spot, 2)}
+    out = {"tag": tag, "date": str(day), "quote_et": qt.strftime("%H:%M"),
+           "quote_kst": qt.astimezone(KST).strftime("%m/%d %H:%M"), "spot": round(spot, 2), "flow_min": flow_min}
 
     cv, pvv = vol[df["is_call"]].sum(), vol[~df["is_call"]].sum()
     co, po = oi[df["is_call"]].sum(), oi[~df["is_call"]].sum()
@@ -117,14 +136,15 @@ def metrics(df, day, prev, sym, tag):
         iv = near[near["strike"] == k0]["iv"].mean()
         out["atm_iv"] = {"expiry": str(e0), "strike": float(k0), "iv": round(float(iv) * 100, 2)}
 
-    # 거래량 상위 (이번 회차 증가분이 있으면 그걸로, 첫 회차면 누적으로)
+    # 거래량: 누적 상위(그날 가장 많이 거래된 계약)와 유입 상위(직전 스냅샷 이후 늘어난 거래량)
+    def rows(t):
+        return [{"expiry": str(r.expiry), "bucket": r.bucket, "cp": r.cp, "strike": float(r.strike),
+                 "vh": None if prev is None else int(r.vh), "vol": int(r.volume or 0), "oi": int(r.open_interest or 0),
+                 "iv": round(float(r.iv) * 100, 1) if pd.notna(r.iv) else None,
+                 "last": float(r.last_trade_price) if pd.notna(r.last_trade_price) else None} for r in t.itertuples()]
+    out["top_volume"] = rows(df[vol > 0].nlargest(12, "volume"))
+    out["top_flow"] = rows(df[df["vh"].fillna(0) > 0].nlargest(12, "vh")) if prev is not None else []
     key = "vh" if prev is not None else "volume"
-    top = df[df[key].fillna(0) > 0].nlargest(12, key)
-    out["top_contracts"] = [{
-        "expiry": str(r.expiry), "bucket": r.bucket, "cp": r.cp, "strike": float(r.strike),
-        "vh": None if prev is None else int(r.vh), "vol": int(r.volume or 0), "oi": int(r.open_interest or 0),
-        "iv": round(float(r.iv) * 100, 1) if pd.notna(r.iv) else None,
-        "last": float(r.last_trade_price) if pd.notna(r.last_trade_price) else None} for r in top.itertuples()]
     agg = {"vol": ("volume", "sum"), "vh": ("vh", "sum"), "oi": ("open_interest", "sum")}
     ex = df.groupby(["expiry", "bucket"]).agg(**agg).reset_index()
     ex_c = df[df["is_call"]].groupby("expiry")["volume"].sum()
@@ -142,8 +162,8 @@ def metrics(df, day, prev, sym, tag):
         out["gex"] = False
         return out
 
-    # 이미 만기가 지난 계약(오늘 만기 + 16:00 이후 시세)은 감마 계산에서 뺀다
-    df = df[(df["expiry"] > day) | ((df["expiry"] == day) & (qt.time() < dtime(16, 0)))].copy()
+    # 이미 만기가 지난 계약은 감마 계산에서 뺀다
+    df = df[df["exp_dt"] > qt].copy()
     oi = df["open_interest"].fillna(0)
     if df["gamma"].fillna(0).abs().sum() == 0:
         out["gex"] = False
@@ -175,8 +195,7 @@ def metrics(df, day, prev, sym, tag):
 
     # 감마 프로파일: 가격이 S로 움직이면 순GEX가 어떻게 되나 (BS 감마 재계산, IV·OI 고정)
     v = df[(oi > 0) & (df["iv"] > 0.01) & (df["iv"] < 5)].copy()
-    exp_dt = {e: datetime.combine(e, dtime(16, 0), ET) for e in v["expiry"].unique()}
-    v["T"] = v["expiry"].map(lambda e: max((exp_dt[e] - qt).total_seconds(), 3600) / (365 * 86400))
+    v["T"] = v["exp_dt"].map(lambda e: max((e - qt).total_seconds(), 3600) / (365 * 86400))
     S = (spot * GRID)[:, None]
     prof = {}
     for b in ("monthly", "all"):
@@ -200,8 +219,7 @@ def day_files(data_dir, sym, day):
 
 
 def symbols(data_dir):
-    return sorted(d for d in os.listdir(data_dir)
-                  if os.path.isdir(os.path.join(data_dir, d)) and not d.startswith("_") and d != "docs")
+    return [s for s in DASH if os.path.isdir(os.path.join(data_dir, s))]
 
 
 def day_slots(data_dir, sym, day, verbose=False, strict=True):
@@ -273,8 +291,8 @@ def write_index(out_dir):
         items.append({"symbol": d["symbol"], "date": d["date"], "gex": d["gex"], "quote_et": last.get("quote_et"),
                       "spot": last.get("spot"), "net_monthly": ((last.get("total") or {}).get("monthly") or {}).get("net"),
                       "flip": (last.get("flip") or {}).get("monthly")})
-    order = ["SPY", "QQQ", "TSLA", "NVDA", "AAPL", "IBIT", "VIX"]
-    items.sort(key=lambda x: order.index(x["symbol"]) if x["symbol"] in order else 99)
+    items = [x for x in items if x["symbol"] in DASH]
+    items.sort(key=lambda x: DASH.index(x["symbol"]))
     with open(f"{out_dir}/index.json", "w", encoding="utf-8") as fh:
         json.dump({"updated_kst": datetime.now(KST).strftime("%Y-%m-%d %H:%M"), "symbols": items}, fh,
                   ensure_ascii=False, separators=(",", ":"))
@@ -293,7 +311,7 @@ def build_day(day, data_dir="data", out_dir="docs/gex", verbose=False, strict=Tr
             t = (s.get("total") or {}).get("monthly")
             print(f"[gex] {sym} {s['tag']} 시세 {s['quote_et']} ET spot {s['spot']} 월물 순GEX {t and t['net']}M "
                   f"flip {(s.get('flip') or {}).get('monthly')} 콜월 {s.get('call_wall')} 풋월 {s.get('put_wall')} "
-                  f"P/C {s.get('pc_vol')} 상위 {s['top_contracts'][:1]}", flush=True)
+                  f"P/C {s.get('pc_vol')} 누적상위 {s['top_volume'][:1]}", flush=True)
     write_index(out_dir)
 
 

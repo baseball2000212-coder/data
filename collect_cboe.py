@@ -7,7 +7,9 @@ CBOE 무료 시세는 15분 늦다. 그래서 목표 시장 시각 + 15분에 �
   python collect_cboe.py pm    → 13:45, 14:45, 15:45, 16:00(주식 종가), 16:15(옵션 마감)
   python collect_cboe.py eod   → 그날 마감 스냅샷이 빠졌을 때만 1회 (예비용)
   python collect_cboe.py test  → 지금 1회, data/_test 에 저장 (커밋하지 않음)
+  python collect_cboe.py live  → SPX·TSLA 실시간 GEX 1회 갱신 (live 브랜치)
 PUSH_EACH=1 이면 회차마다 GEX 대시보드(docs/)를 갱신하고 커밋·푸시한다.
+LIVE=1 이면 회차 사이 대기 시간에 SPX·TSLA GEX를 1분마다 갱신한다(live.py).
 GitHub Actions cron은 UTC 고정이지만 목표 시각은 ET로 계산하므로 서머타임은 자동 처리.
 """
 import os, re, sys, time, subprocess
@@ -17,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from us_calendar import is_trading_day, is_fresh, EARLY_CLOSE
 
-TICKERS = ["SPY", "QQQ", "TSLA", "AAPL", "NVDA", "IBIT", "_VIX"]   # 지수는 "_SPX"처럼 앞에 _
+TICKERS = ["_SPX", "SPY", "QQQ", "TSLA", "AAPL", "NVDA", "IBIT", "_VIX"]   # 지수는 "_SPX"처럼 앞에 _
 OUT_DIR = "data"
 ET = ZoneInfo("America/New_York")
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -33,6 +35,18 @@ EARLY_SLOTS = {   # 13:00 조기 폐장일
     "am": [(9, 45), (10, 45), (11, 45), (12, 45), (13, 0), (13, 15)],
     "pm": [],
 }
+# 실시간 갱신을 멈추는 시각(ET, 수집 시각). am은 pm 잡이 이어받기 직전까지, pm은 옵션 마감 시세(16:15)를 받을 때까지
+LIVE_END = {"am": (13, 50), "pm": (16, 31)}
+EARLY_LIVE_END = {"am": (13, 31), "pm": (13, 31)}
+
+
+def slim(name, df):
+    """SPX는 체인이 커서 미결제·거래량이 있고 현재가 ±25% 안의 계약만 저장한다."""
+    if name != "SPX" or df.empty:
+        return df
+    spot = float(df["spot"].iloc[0])
+    keep = ((df["open_interest"].fillna(0) > 0) | (df["volume"].fillna(0) > 0)) & df["strike"].between(spot * 0.75, spot * 1.25)
+    return df[keep]
 
 
 def close_tag(day):
@@ -97,6 +111,7 @@ def collect(tag, day, out_dir=OUT_DIR, check_fresh=True):
                 raise RuntimeError(f"CBOE 파일 시각 {ts.astimezone(ET):%m-%d %H:%M} ET — 묵은 시세라 저장 안 함")
             path = snap_path(out_dir, name, day, tag)
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            df = slim(name, df)
             df.to_csv(path, index=False, compression="gzip")
             print(f"[ok] {datetime.now(ET):%H:%M:%S} ET  {name} {tag}: {len(df):>6} rows (시세 {df['quote_et'].iloc[0][11:16]} ET)", flush=True)
         except Exception as e:
@@ -118,8 +133,10 @@ def publish(tag, day):
     subprocess.run(["bash", "commit.sh", f"collect {tag} {day}"], check=False)
 
 
-def sleep_until(target):
-    """target(ET datetime)까지 대기. 이미 지났으면 바로 반환."""
+def sleep_until(target, live=None):
+    """target(ET datetime)까지 대기. live가 있으면 기다리는 동안 1분마다 실시간 GEX를 갱신한다."""
+    if live is not None:
+        return live.run_until(target)
     while True:
         remaining = (target - datetime.now(ET)).total_seconds()
         if remaining <= 0:
@@ -138,6 +155,11 @@ def main():
         gex.build_day(day, data_dir="data/_test", out_dir="data/_test/docs", verbose=True, strict=False)
         sys.exit(1 if fails else 0)
 
+    if mode == "live":
+        from live import Live
+        Live(fetch).tick()
+        return
+
     if not is_trading_day(day):
         print(f"skip: {day} 휴장")
         return
@@ -152,6 +174,10 @@ def main():
         publish("eod", day)
         sys.exit(1 if fails else 0)
 
+    live = None
+    if os.environ.get("LIVE") == "1":
+        from live import Live
+        live = Live(fetch)
     total_fails = 0
     for h, mnt in (EARLY_SLOTS if day in EARLY_CLOSE else SLOTS)[mode]:
         tag = f"{h:02d}{mnt:02d}"
@@ -160,9 +186,12 @@ def main():
             print(f"skip {tag}: 잡이 너무 늦게 시작됨", flush=True)
             continue
         print(f"waiting for {target:%H:%M} ET (시장 {tag}) ...", flush=True)
-        sleep_until(target)
+        sleep_until(target, live)
         total_fails += collect(tag, day)
         publish(tag, day)
+    if live is not None:
+        h, mnt = (EARLY_LIVE_END if day in EARLY_CLOSE else LIVE_END)[mode]
+        live.run_until(now.replace(hour=h, minute=mnt, second=0, microsecond=0))
     sys.exit(1 if total_fails else 0)
 
 

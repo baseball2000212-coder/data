@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "am / pm / eod / test(지금 1회, 커밋 안 함)"
+        description: "am / pm / eod / test(지금 1회, 커밋 안 함) / live(SPX·TSLA 실시간 GEX 1회 갱신)"
         required: true
         default: "am"
         type: choice
-        options: [am, pm, eod, test]
+        options: [am, pm, eod, test, live]
   # GitHub 예약은 백업용. 외부 크론이 정시에 깨우고, 이건 늦게라도 한 번 더 시도 (이미 받은 회차는 스크립트가 건너뜀)
   schedule:
     - cron: "0 13 * * 1-5"    # am (EDT 9:00 / EST 8:00)
@@ -66,11 +66,12 @@ jobs:
           git config user.name "collector-bot"
           git config user.email "bot@users.noreply.github.com"
 
-      - name: collect (회차마다 대시보드 갱신·커밋)
+      - name: collect (회차마다 대시보드 갱신·커밋, 회차 사이엔 1분마다 실시간 GEX)
         env:
           PUSH_EACH: ${{ steps.m.outputs.mode == 'test' && '0' || '1' }}
+          LIVE: ${{ (steps.m.outputs.mode == 'am' || steps.m.outputs.mode == 'pm') && '1' || '0' }}
         run: python collect_cboe.py ${{ steps.m.outputs.mode }}
 
       - name: commit (남은 변경분)
-        if: always() && steps.m.outputs.mode != 'test'
+        if: always() && steps.m.outputs.mode != 'test' && steps.m.outputs.mode != 'live'
         run: bash commit.sh "collect ${{ steps.m.outputs.mode }} ${{ steps.d.outputs.day }}"
