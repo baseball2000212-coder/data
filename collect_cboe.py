@@ -79,6 +79,10 @@ def fetch(sym):
     df.insert(4, "strike", m[3].astype(int) / 1000)
     df.insert(0, "underlying", sym.lstrip("_"))
     df["spot"] = d.get("current_price")
+    pc = d.get("prev_day_close")
+    if pc is None and d.get("current_price") is not None and d.get("price_change") is not None:
+        pc = d["current_price"] - d["price_change"]
+    df["prev_close"] = pc                                          # 전일 종가 (화면의 등락률용)
     df["cboe_timestamp"] = js.get("timestamp")
     df["collected_et"] = datetime.now(ET).strftime("%Y-%m-%d %H:%M:%S")
     df["quote_et"] = (ts - DELAY).astimezone(ET).strftime("%Y-%m-%d %H:%M:%S")   # 시세가 반영하는 시장 시각(추정)

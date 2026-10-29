@@ -161,6 +161,8 @@ def metrics(df, day, prev, sym, tag):
     out = {"tag": tag, "date": str(day), "session": session, "quote_et": qt.strftime("%H:%M"),
            "quote_date_et": str(qt.date()),
            "quote_kst": qt.astimezone(KST).strftime("%m/%d %H:%M"), "spot": round(spot, 2), "flow_min": flow_min}
+    if "prev_close" in df and pd.notna(df["prev_close"].iloc[0]):
+        out["prev_close"] = round(float(df["prev_close"].iloc[0]), 2)
     if spot_close is not None:
         out["spot_close"] = round(spot_close, 2)
         out["spot_note"] = f"야간: 현재가는 옵션 가격으로 역산한 지수 (정규장 종가 {spot_close:,.2f})"
