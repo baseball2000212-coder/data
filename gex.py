@@ -293,9 +293,11 @@ def frame_of(m, qt, band):
 def write_archive(sym, day, slots, out_dir="docs/archive"):
     """매시 스냅샷으로 그날 보관본을 만든다(분 단위 기록이 없던 날용). 이미 분 단위 보관본이 있으면 건드리지 않는다."""
     p = f"{out_dir}/{sym}/{day}.json"
+    old = {}
     if os.path.exists(p):
         try:
-            if len(json.load(open(p, encoding="utf-8")).get("frames", [])) > len(slots):
+            old = json.load(open(p, encoding="utf-8"))
+            if len(old.get("frames", [])) > len(slots):
                 return
         except Exception:
             pass
@@ -309,7 +311,8 @@ def write_archive(sym, day, slots, out_dir="docs/archive"):
         return
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as fh:
-        json.dump({"symbol": sym, "date": str(day), "bars": [], "frames": frames, "slots": slots}, fh,
+        keep = {k: old[k] for k in ("bars_ival", "bars_src") if k in old}   # 채워 둔 1분봉은 남긴다
+        json.dump({"symbol": sym, "date": str(day), "bars": old.get("bars") or [], **keep, "frames": frames, "slots": slots}, fh,
                   ensure_ascii=False, separators=(",", ":"))
     ip = f"{out_dir}/index.json"
     try:

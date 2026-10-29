@@ -1,0 +1,35 @@
+name: bars backfill
+# 지난 날 보관본(docs/archive)에 비어 있는 TSLA 1분봉을 채운다. 평소에는 pm 잡이 마감 후 알아서 채운다.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bars
+  cancel-in-progress: false
+
+jobs:
+  bars:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/
+            /docs/
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests
+      - run: python backfill_bars.py
+      - name: commit
+        run: |
+          git config user.name "collector-bot"
+          git config user.email "bot@users.noreply.github.com"
+          bash commit.sh "TSLA 1분봉 백필"

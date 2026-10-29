@@ -160,8 +160,15 @@ class Live:
                 pass
             os.makedirs(os.path.join(ARCHIVE, name), exist_ok=True)
             path = os.path.join(ARCHIVE, name, f"{fr['date']}.json")
-            try:   # 매시판 보관본이 더 촘촘하면(잡이 늦게 떠서 분 단위가 적은 날) 그대로 둔다
-                if len(json.load(open(path, encoding="utf-8")).get("frames", [])) > len(fr["frames"]):
+            try:   # 매시판 보관본이 더 촘촘하면(잡이 늦게 떠서 분 단위가 적은 날) 프레임은 그대로 두고 1분봉만 넣는다
+                old = json.load(open(path, encoding="utf-8"))
+                if not doc["bars"] and old.get("bars"):
+                    doc.update({k: old[k] for k in ("bars", "bars_ival", "bars_src") if k in old})
+                if len(old.get("frames", [])) > len(fr["frames"]):
+                    if doc["bars"] and not old.get("bars"):
+                        old["bars"] = doc["bars"]
+                        with open(path, "w", encoding="utf-8") as fh:
+                            json.dump(old, fh, ensure_ascii=False, separators=(",", ":"))
                     continue
             except Exception:
                 pass

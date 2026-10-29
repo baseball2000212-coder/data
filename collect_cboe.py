@@ -209,6 +209,11 @@ def main():
         if mode == "pm" or day in EARLY_CLOSE:   # 장 마감 후 그날 분 단위 기록을 보관
             try:
                 live.archive()
+                try:   # 그날(또는 지난 날) 보관본에 1분봉이 비어 있으면 채운다
+                    import backfill_bars
+                    backfill_bars.fill("TSLA")
+                except Exception as e:
+                    print(f"[bars FAIL] {e}", file=sys.stderr, flush=True)
                 subprocess.run(["bash", "commit.sh", f"archive {day}"], check=False)
             except Exception as e:
                 print(f"[archive FAIL] {e}", file=sys.stderr, flush=True)
