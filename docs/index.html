@@ -500,7 +500,7 @@ function priceGexChart(s, isLive){
     const until = s.frame ? `${s.quote_date_et} ${s.quote_et}` : "9999";
     cs = srcBars.filter(b => b[0].slice(0,10) === (s.quote_date_et || day) && b[0].replace("T"," ") <= until)
                 .map(b => ({t:b[0].slice(11), o:b[1], h:b[2], l:b[3], c:b[4], cv:b[5], pv:b[6]}));
-    // 지난 날 보관본은 1분봉(30일 넘은 날은 2분봉)을 나중에 채워 넣은 것이라 간격·출처를 따로 적는다
+    // 지난 날 보관본은 1분봉(30일 넘은 날은 2분·5분봉)을 나중에 채워 넣은 것이라 간격·출처를 따로 적는다
     const iv = Math.max(st.ival, (s.frame && fd?.bars_ival) || 1);
     cs = agg(cs, iv);
     if (cs.length){ src = `${iv}분봉`; if (s.frame && fd?.bars_src && fd.bars_src !== "CBOE") src += `, ${fd.bars_src} 주가`; }
