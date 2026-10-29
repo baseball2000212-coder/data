@@ -17,7 +17,7 @@ ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
 SYMS = ["_SPX", "TSLA"]
 EVERY = 60                       # 초. CBOE 파일이 1분 남짓마다 새로 만들어져서 이보다 줄여도 소용없다
-AFTER = 2                        # 다음 파일은 직전 파일 시각 + EVERY + 이 초 뒤에 받으러 간다(갱신 직후에 잡게)
+AFTER = -20                      # 다음 파일은 직전 파일 시각 + EVERY + 이 초(= 40초) 뒤부터 받으러 간다. CBOE 파일은 45~50초 간격으로 나온다
 FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량 (만기별·행사가별 표)
 FLOW_WINS = {"1": 1, "30": 30, "60": 60}   # Top Flow 표의 비교 창(분). 화면에서 고른다
 KEEP = timedelta(minutes=61)     # 메모리에 남기는 분 단위 스냅샷 길이
@@ -26,6 +26,7 @@ SERIES_MAX = 1500
 FRAME_BAND = gex.FRAME_BAND                 # 분 단위 사다리(지난 시점 보기)에 남기는 행사가: 현재가 ±이 비율
 GTH_FRAME_GAP = timedelta(minutes=5)        # 야간에는 5분마다 한 장만 남긴다
 ARCHIVE = "docs/archive"
+LIVE_REF = "refs/remotes/origin/live"   # FETCH_HEAD는 회차 커밋(commit.sh의 pull)과 겹치면 덮어써져서 전용 참조를 쓴다
 
 
 def chart_bars(sym):
@@ -53,6 +54,7 @@ class Live:
         self.syms = syms or SYMS                      # 이번 잡이 갱신할 종목 (야간 잡은 SPX만)
         self.snaps = {s: deque() for s in SYMS}   # (시세 시각, option·volume·quote_et)
         self.disk = {}                             # (종목, 날짜) → 그날 저장된 매시 스냅샷. 잡이 바뀐 직후 30·60분 창용
+        self.dlog = {}                             # 30·60분 창 기준을 어디서 찾았는지 진단 로그(15분에 한 번)
         self.pvol = {}                             # (종목, 날짜) → (전 거래일, 그날 마지막 스냅샷 거래량). 전일 대비 유입용
         self.last_q = {}
         self.due = {}                              # 종목별 다음에 받으러 갈 시각(UTC). CBOE 갱신 주기에 맞춘다
@@ -65,19 +67,19 @@ class Live:
     def _restore(self):
         """앞 잡(am)이 남긴 분 단위 추이를 이어받는다."""
         try:
-            git("fetch", "-q", "--depth", "1", "origin", BRANCH)
+            git("fetch", "-q", "--depth", "1", "origin", f"+{BRANCH}:{LIVE_REF}")
         except Exception:
             return
         for s in SYMS:
             name = s.lstrip("_")
             try:
-                d = json.loads(git("show", f"FETCH_HEAD:{name}.json"))
+                d = json.loads(git("show", f"{LIVE_REF}:{name}.json"))
                 self.docs[name] = d
                 self.series[s] = d.get("series", [])
             except Exception:
                 pass
             try:
-                f = json.loads(git("show", f"FETCH_HEAD:{name}_frames.json"))
+                f = json.loads(git("show", f"{LIVE_REF}:{name}_frames.json"))
                 self.frames[name] = {"date": f.get("date"), "frames": f.get("frames", [])}
             except Exception:
                 pass
@@ -90,9 +92,9 @@ class Live:
                 df, ts = self.fetch(s)
                 qt = gex.quote_time(df)
                 now = datetime.now(timezone.utc)
-                if self.last_q.get(s) == qt:      # CBOE 파일이 아직 안 바뀜 → 30초 동안은 3초마다, 그 뒤엔 천천히(최대 60초)
-                    k = self.miss[s] = self.miss.get(s, 0) + 1   # CBOE 파일 시각이 매번 60초 간격은 아니라 촘촘히 본다
-                    self.due[s] = now + timedelta(seconds=3 if k <= 10 else min(15 * (k - 10), EVERY))
+                if self.last_q.get(s) == qt:      # CBOE 파일이 아직 안 바뀜 → 45초 동안은 3초마다, 그 뒤엔 천천히(최대 60초)
+                    k = self.miss[s] = self.miss.get(s, 0) + 1   # CBOE 파일은 45~50초 간격이라 촘촘히 본다
+                    self.due[s] = now + timedelta(seconds=3 if k <= 15 else min(15 * (k - 15), EVERY))
                     continue
                 self.miss[s] = 0
                 nxt = ts + timedelta(seconds=EVERY + AFTER)     # 다음 파일이 나올 즈음
@@ -152,10 +154,21 @@ class Live:
         for q, d, _ in reversed(self.snaps[s]):
             if qt - q >= need:
                 return d if qt - q <= cap else None
-        for q, d in reversed(self._disk(name, day)):
+        disk = self._disk(name, day)
+        for q, d in reversed(disk):
             if qt - q >= need:
+                self._diag(name, win, f"매시 스냅샷 {q:%H:%M} 사용" if qt - q <= cap else f"매시 스냅샷 {q:%H:%M}는 너무 오래돼 비움")
                 return d if qt - q <= cap else None
+        if win >= timedelta(minutes=30):
+            mem = f"{self.snaps[s][0][0]:%H:%M}~" if self.snaps[s] else "없음"
+            self._diag(name, win, f"기준 없음 (메모리 {mem}, 매시 스냅샷 {[f'{q:%H:%M}' for q, _ in disk]})")
         return None
+
+    def _diag(self, name, win, msg):
+        key, now = (name, win), time.time()
+        if now - self.dlog.get(key, 0) >= 900:
+            self.dlog[key] = now
+            print(f"[live] {name} {int(win.total_seconds() // 60)}분 창: {msg}", flush=True)
 
     def prev_volume(self, name, day):
         """전 거래일 마지막 스냅샷(eod 우선)의 계약별 거래량. 저장소 커밋에서 그 파일 하나만 받는다(부분 체크아웃이라 폴더는 없다)."""
@@ -264,11 +277,11 @@ class Live:
                 files = {f"{n}.json": d for n, d in self.docs.items() if n in mine}
                 files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"] and n in mine})
                 try:   # 이 잡이 맡지 않은 종목 파일은 브랜치에 있는 최신본을 그대로 둔다
-                    git("fetch", "-q", "--depth", "1", "origin", BRANCH)
-                    base = git("rev-parse", "FETCH_HEAD")
-                    for path in git("ls-tree", "--name-only", "FETCH_HEAD").split():
+                    git("fetch", "-q", "--depth", "1", "origin", f"+{BRANCH}:{LIVE_REF}")
+                    base = git("rev-parse", LIVE_REF)
+                    for path in git("ls-tree", "--name-only", LIVE_REF).split():
                         if path not in files and path.split("_")[0].split(".")[0] not in mine:
-                            files[path] = json.loads(git("show", f"FETCH_HEAD:{path}"))
+                            files[path] = json.loads(git("show", f"{LIVE_REF}:{path}"))
                 except Exception:
                     pass
                 env = dict(os.environ, GIT_INDEX_FILE=os.path.join(git("rev-parse", "--git-dir"), "live.idx"))
@@ -286,7 +299,7 @@ class Live:
                 time.sleep(2)
 
     def run_until(self, end):
-        """end(ET)까지 갱신. 종목마다 CBOE 파일이 새로 나오는 시각(직전 파일 시각 + 1분)에 맞춰 받으러 가서
+        """end(ET)까지 갱신. 종목마다 CBOE 파일이 새로 나올 즈음(직전 파일 시각 + 40초)부터 3초마다 받으러 가서
         파일이 나온 뒤 몇 초 안에 계산·게시한다(고정 1분 간격이면 평균 30초, 최대 1분을 더 기다린다)."""
         while datetime.now(ET) < end:
             now = datetime.now(timezone.utc)

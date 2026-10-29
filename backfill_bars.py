@@ -26,8 +26,8 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 def live_bars(sym):
     """live 브랜치의 <종목>.json 1분봉(그날 정규장분)."""
     try:
-        subprocess.run(["git", "fetch", "-q", "--depth=1", "origin", "live"], check=True, capture_output=True)
-        doc = json.loads(subprocess.run(["git", "show", f"FETCH_HEAD:{sym}.json"], check=True,
+        subprocess.run(["git", "fetch", "-q", "--depth=1", "origin", "+live:refs/remotes/origin/live"], check=True, capture_output=True)
+        doc = json.loads(subprocess.run(["git", "show", f"refs/remotes/origin/live:{sym}.json"], check=True,
                                         capture_output=True, text=True).stdout)
         return doc.get("bars") or []
     except Exception:
