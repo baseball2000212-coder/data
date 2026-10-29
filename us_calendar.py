@@ -50,6 +50,13 @@ def next_trading_day(d):
     return d
 
 
+def prev_trading_day(d):
+    d -= timedelta(days=1)
+    while not is_trading_day(d):
+        d -= timedelta(days=1)
+    return d
+
+
 def session_of(t, gth=False):
     """시장 시각(ET datetime)이 어느 거래 세션인지와 그 세션의 거래일.
     SPX·VIX 옵션은 야간 거래(GTH, 20:15~다음 날 09:15 ET)가 있어 그 시간에도 가격·그릭스가 바뀐다.
