@@ -117,7 +117,8 @@ th:first-child,td:first-child{text-align:left}
     <div class="card">
       <h2>일별 추이 (마감 기준)</h2>
       <p class="d">월물 순 GEX, 현재가, 감마 전환점 · 최근 90거래일</p>
-      <div class="chart sm"><canvas id="cHistory"></canvas></div>
+      <div class="chart sm" id="histBox"><canvas id="cHistory"></canvas></div>
+      <p class="empty hide" id="histEmpty">일별 추이는 매시 스냅샷이 하루 이상 쌓이면 나타납니다.</p>
     </div>
   </div>
 
@@ -249,8 +250,8 @@ function kpis(s, gx){
   if (gx){
     items.push([`순 GEX · ${b==="monthly"?"월물":"전체"}`, money(t.net), t.net>=0 ? "양(+) 감마: 변동 완화 쪽" : "음(−) 감마: 변동 확대 쪽", sgn(t.net)]);
     items.push(["감마 전환점", flip ?? "–", flip ? (s.spot>=flip ? `현재가가 ${(s.spot-flip).toFixed(1)} 위` : `현재가가 ${(flip-s.spot).toFixed(1)} 아래`) : "범위 안에 없음", ""]);
-    items.push(["콜월 (월물)", s.call_wall ?? "–", "콜 감마가 가장 큰 행사가", "pos"]);
-    items.push(["풋월 (월물)", s.put_wall ?? "–", "풋 감마가 가장 큰 행사가", "neg"]);
+    items.push(["콜월 (월물)", s.call_wall ?? "–", "순 GEX가 가장 큰 행사가", "pos"]);
+    items.push(["풋월 (월물)", s.put_wall ?? "–", "순 GEX가 가장 작은 행사가", "neg"]);
   } else if (s.gex_note){ items.push(["GEX", "–", s.gex_note, ""]); }
   if (s.atm_iv) items.push(["ATM IV", s.atm_iv.iv+"%", `${s.atm_iv.expiry.slice(5)} 월물 ${s.atm_iv.strike}`, ""]);
   items.push(["P/C 거래량", s.pc_vol ?? "–", `미결제 P/C ${s.pc_oi ?? "–"}`, ""]);
@@ -304,6 +305,8 @@ function intradayChart(){
 
 function historyChart(){
   const h = (st.hourly?.history || []).filter(x => x.net_monthly != null); const o = baseOpts();
+  $("#histBox").classList.toggle("hide", !h.length); $("#histEmpty").classList.toggle("hide", !!h.length);
+  if (!h.length) return;
   o.scales.y.ticks.callback = v => money(v);
   o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
   o.scales.x.ticks.maxTicksLimit = 10;
@@ -325,12 +328,12 @@ function tables(s, isLive){
   const V = s.top_volume || s.top_contracts || [];
   $("#tVol").innerHTML = V.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th><th>누적</th><th>미결제</th><th>거래/미결제</th><th>IV</th><th>최근가</th></tr>` +
     V.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vol)}</b></td>
-      <td>${n0(r.oi)}</td><td>${ratio(r)}</td><td>${r.iv ?? "–"}%</td><td>${r.last ?? "–"}</td></tr>`).join("")
+      <td>${n0(r.oi)}</td><td>${ratio(r)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
     : `<tr><td class="empty">거래가 없습니다.</td></tr>`;
   const F = s.top_flow || [];
   $("#tFlow").innerHTML = F.length ? `<tr><th>만기</th><th>구분</th><th>행사가</th><th>유입</th><th>누적</th><th>미결제</th><th>IV</th><th>최근가</th></tr>` +
     F.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vh)}</b></td>
-      <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.iv ?? "–"}%</td><td>${r.last ?? "–"}</td></tr>`).join("")
+      <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
     : `<tr><td class="empty">유입 데이터가 없습니다 (장중에만 계산).</td></tr>`;
   $("#tExp").innerHTML = `<tr><th>만기</th>${flow?"<th>유입</th>":""}<th>누적</th><th>콜 비중</th><th>미결제</th></tr>` +
     (s.top_expiries||[]).map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>

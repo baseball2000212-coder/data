@@ -187,11 +187,11 @@ def metrics(df, day, prev, sym, tag):
         g = s.pivot_table(index="strike", columns="cp", values="gex", aggfunc="sum").fillna(0)
         g = g.reindex(columns=["C", "P"], fill_value=0)
         out["strikes"][b] = {"k": [float(k) for k in g.index], "c": [_m(v, 2) for v in g["C"]], "p": [_m(v, 2) for v in g["P"]]}
-    m = df[df["bucket"] == "monthly"]
-    cw = m[m["is_call"]].groupby("strike")["gex"].sum()
-    pw = m[~m["is_call"]].groupby("strike")["gex"].sum()
-    out["call_wall"] = float(cw.idxmax()) if len(cw) and cw.max() > 0 else None
-    out["put_wall"] = float(pw.idxmin()) if len(pw) and pw.min() < 0 else None
+    # 콜월·풋월: 월물 행사가별 순GEX가 가장 큰(+)·작은(−) 행사가. 같은 행사가에 콜·풋 미결제가 짝으로 쌓인
+    # 박스·컨버전 포지션(SPX 7000·8000 같은 정수 행사가)은 순GEX로 보면 서로 상쇄된다
+    net = df[df["bucket"] == "monthly"].groupby("strike")["gex"].sum()
+    out["call_wall"] = float(net.idxmax()) if len(net) and net.max() > 0 else None
+    out["put_wall"] = float(net.idxmin()) if len(net) and net.min() < 0 else None
 
     # 감마 프로파일: 가격이 S로 움직이면 순GEX가 어떻게 되나 (BS 감마 재계산, IV·OI 고정)
     v = df[(oi > 0) & (df["iv"] > 0.01) & (df["iv"] < 5)].copy()
