@@ -63,6 +63,10 @@ header p{margin:0;color:var(--sub);font-size:15px}
 .seg button{background:none;border:0;color:var(--sub);font:600 13px "Noto Sans KR";padding:0 12px;height:34px;cursor:pointer}
 .seg button+button{border-left:1.5px solid var(--line)}
 .seg button.on{background:var(--tint);color:var(--blue);font-weight:800}
+.seg button:disabled{opacity:.35;cursor:default}
+.seg.sm button{height:28px;padding:0 10px;font-size:12px}
+.card .hd{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.card .hd h2{margin:0}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
 .kpi{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
 .kpi .l{font-size:13px;color:var(--mute);font-weight:700}
@@ -103,6 +107,7 @@ th:first-child,td:first-child{text-align:left}
 .up{color:var(--cup)}.dn{color:var(--cdn)}
 .tag{display:inline-block;font-size:12px;font-weight:700;color:var(--orange);border:1.5px solid var(--orange);border-radius:999px;padding:1px 9px;margin-left:6px;vertical-align:2px}
 .tag:empty{display:none}
+.tag.pos{color:var(--red);border-color:var(--red)}.tag.neg{color:var(--blue);border-color:var(--blue)}
 .card .d{display:none}
 .info{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:6px;border-radius:50%;
   border:1.5px solid var(--mute);color:var(--mute);background:none;font:700 11px "Noto Sans KR";cursor:pointer;vertical-align:2px;padding:0}
@@ -153,8 +158,8 @@ th:first-child,td:first-child{text-align:left}
     </div>
     <div class="grid2">
       <div class="card">
-        <h2>Gamma Profile <span id="flipTag" class="tag"></span></h2>
-        <p class="d">가격이 움직이면 순 GEX가 어떻게 바뀌나 · 빨간 면은 양(+) 감마 구간, 파란 면은 음(−) 감마 구간 · 주황 점선이 감마 플립(순 GEX가 0이 되는 가격)</p>
+        <h2>Gamma Profile <span id="flipTag" class="tag"></span><span id="regimeTag" class="tag"></span></h2>
+        <p class="d">가격이 움직이면 순 GEX가 어떻게 바뀌나 · 빨간 면은 양(+) 감마 구간, 파란 면은 음(−) 감마 구간 · 주황 점선이 감마 플립(순 GEX가 0이 되는 가격) · 해석: 현재가가 플립 위(양 감마)면 딜러가 오르면 팔고 내리면 사서 헤지하므로 평균회귀 쪽이다. 변동성이 줄고 큰 양(+) GEX 행사가 근처에 붙잡히기(핀) 쉽다 · 현재가가 플립 아래(음 감마)면 딜러가 오르면 사고 내리면 팔아 움직임을 키우므로 추세추종 쪽이다. 변동성이 커지고 급등락이 가속되기 쉽다 · 플립 근처는 국면이 바뀌는 구간이라 방향보다 변동성 변화를 본다 · 제목 옆 태그가 지금 국면이다(Mean-reverting = 평균회귀, Trend-following = 추세추종) · 딜러가 콜 매수·풋 매도 상태라는 통상 가정과 전일 미결제약정 기반이라 참고 지표다</p>
         <div class="chart sm"><canvas id="cProfile"></canvas></div>
       </div>
       <div class="card">
@@ -178,7 +183,7 @@ th:first-child,td:first-child{text-align:left}
       <div class="tbl"><table id="tVol"></table></div>
     </div>
     <div class="card">
-      <h2 id="flowTitle">Top Flow</h2>
+      <div class="hd"><h2 id="flowTitle">Top Flow</h2><div class="seg sm" id="flowWins" aria-label="유입 비교 창"></div></div>
       <p class="d" id="flowDesc">최근 몇 분 동안 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다</p>
       <div class="tbl"><table id="tFlow"></table></div>
     </div>
@@ -200,6 +205,7 @@ th:first-child,td:first-child{text-align:left}
     <b>계산 방법</b> — GEX = 감마 × 미결제약정 × 100 × 현재가² × 1%. 딜러가 콜은 매수, 풋은 매도한 상태라는 통상 가정으로 콜 +, 풋 −.
     순 GEX가 <b>양(+)</b>이면 딜러가 오르면 팔고 내리면 사서 변동을 줄이는 쪽, <b>음(−)</b>이면 변동을 키우는 쪽이다.
     TSLA처럼 개인 콜 매수가 많은 종목은 딜러가 콜을 판 상태일 수 있으니 콜·풋 막대를 따로 보고 판단한다.<br>
+    <b>해석 방법</b> — 현재가가 감마 플립 <b>위</b>(순 GEX 양수)면 딜러가 오르면 팔고 내리면 사며 헤지하므로 <b>평균회귀</b> 장세가 되기 쉽다. 변동성이 줄고, 콜월·풋월 사이 박스권이나 큰 양(+) GEX 행사가에 붙잡히는(핀) 움직임이 나오기 쉽다. 현재가가 플립 <b>아래</b>(순 GEX 음수)면 딜러가 오르면 사고 내리면 팔아 움직임을 키우므로 <b>추세추종</b> 장세가 되기 쉽다. 변동성이 커지고 급락·급등이 가속되기 쉽다. 플립 근처는 국면이 바뀌는 자리라 방향보다 변동성이 커지는지 본다. 순 GEX의 크기가 클수록 이 효과가 강하다. 딜러 포지션을 실제로 아는 게 아니라 통상 가정과 전일 미결제약정으로 추정한 값이라, 매매 신호가 아니라 장세를 가늠하는 참고 지표로 쓴다.<br>
     <b>기본값이 All(오늘 만기 제외 전 만기)인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 열고 닫는 0DTE 포지션은 잡히지 않는다. 하지만 내일 이후 만기인 위클리(SPXW)·월말물은 전일 OI가 다 잡히고, SPX 감마는 월물보다 위클리 쪽에 훨씬 많이 쌓여 있다. 그래서 오늘 만기만 빼고 전부 합친 값을 기본으로 보고, 월물만(Monthly)·오늘 만기만(0DTE)은 위 토글로 따로 본다.<br>
     <b>그릭스</b> — 감마·IV는 Cboe가 계산한 값을 그대로 쓴다. Cboe IV는 매수·매도 호가의 중간가(mid)로 역산한 값과 평균 0.2%p 이내로 맞는다(체결가가 아니라 중간가 기준). 야간(GTH)에는 지수가 멈춰 있어, 중간가로 역산한 지수에서 Cboe IV로 감마를 다시 계산한다.<br>
     <b>시세</b> — 자료: Cboe 지연 시세(15분). 학습·연구용이며 투자 판단의 근거로 쓰지 않는다. CBOE 무료 시세라 15분 늦다. 시각은 모두 시세가 반영하는 시장 시각(ET). 장중에는 1분마다 다시 계산하고, 매시 스냅샷은 원자료와 함께 저장한다.
@@ -218,8 +224,9 @@ const BUCKETS = [["all","All"],["monthly","Monthly"],["0dte","0DTE"]];
 const BUCKET_KO = {monthly:"Monthly", weekly:"Weekly", "0dte":"0DTE", all:"All"};
 const SESS_EN = {"정규장":"RTH", "야간":"GTH (overnight)", "개장 전":"Pre-market", "장 마감 후":"After hours"};
 const IVALS = [1, 5, 15];
+const FLOW_WINS = [["1","1m"],["30","30m"],["60","60m"],["close","Since close"]];
 // day: "live"(오늘) 또는 보관된 날짜, fi: 고른 분 단위 장면 번호(null이면 실시간)
-const st = {sym:null, live:null, hourly:null, bucket:"all", ival:1, day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
+const st = {sym:null, live:null, hourly:null, bucket:"all", ival:1, flowWin:"1", day:"live", fi:null, fdoc:null, fdocKey:null, fdocAt:0,
             archive:{}, charts:{}, next:POLL};
 
 const fmtM = v => v==null ? "–" : (Math.abs(v)>=1000 ? (v/1000).toFixed(2)+"B" : Math.round(v)+"M");
@@ -315,7 +322,7 @@ function setupInfo(){
     const h = card.querySelector("h2"), d = card.querySelector(".d");
     if (!h || !d || h.querySelector(".info")) return;
     const b = document.createElement("button"); b.className = "info"; b.textContent = "i"; b.setAttribute("aria-label", "설명");
-    b.onclick = e => { e.stopPropagation(); popover(b, h.firstChild.textContent.trim(), d.textContent.split(/(?<=[.다])\s+|\s·\s/).filter(Boolean)); };
+    b.onclick = e => { e.stopPropagation(); popover(b, h.firstChild.textContent.trim(), d.textContent.split(/(?<=[.。])\s+|\s·\s/).map(t => t.replace(/^·\s*/, "").trim()).filter(Boolean)); };
     h.appendChild(b);
   });
   $("#bar").addEventListener("click", e => { const b = e.target.closest(".info"); if (b){ e.stopPropagation(); const k = BAR_INFO[b.dataset.bi]; popover(b, k.title, k.lines); } });
@@ -330,6 +337,8 @@ function init(){
   $("#tabs").onclick = e => { const b = e.target.closest(".tab"); if (b) load(b.dataset.s); };
   $("#buckets").innerHTML = BUCKETS.map(([k,l]) => `<button data-b="${k}">${l}</button>`).join("");
   $("#buckets").onclick = e => { const b = e.target.closest("button"); if (b){ st.bucket = b.dataset.b; render(); } };
+  $("#flowWins").innerHTML = FLOW_WINS.map(([k,l]) => `<button data-w="${k}">${l}</button>`).join("");
+  $("#flowWins").onclick = e => { const b = e.target.closest("button"); if (b && !b.disabled){ st.flowWin = b.dataset.w; render(); } };
   $("#ivals").innerHTML = IVALS.map(m => `<button data-m="${m}">${m}m</button>`).join("");
   $("#ivals").onclick = e => { const b = e.target.closest("button"); if (b){ st.ival = +b.dataset.m; render(); } };
   $("#dSel").onchange = () => pickDay($("#dSel").value);
@@ -620,6 +629,9 @@ function profileChart(s){
   const pb = st.bucket === "0dte" ? "all" : st.bucket;
   const fl = s.flip?.[pb];
   $("#flipTag").textContent = fl ? `Flip ${fl}` : "";
+  // 지금 국면: 플립 위면 양 감마(평균회귀), 아래면 음 감마(추세추종). 범위 안에 플립이 없으면 순 GEX 부호로 본다
+  const pos = fl ? s.spot >= fl : (s.total?.[pb]?.net ?? 0) >= 0, rt = $("#regimeTag");
+  rt.textContent = pos ? "Mean-reverting" : "Trend-following"; rt.className = `tag ${pos ? "pos" : "neg"}`;
   o.plugins.vlines = {lines:[{v:s.spot, color:css("--ink"), label:`Spot ${s.spot}`, dash:[2,3]},
     {v:fl, color:css("--orange"), label:fl ? `Gamma Flip ${fl}` : "", dash:[6,3], row:1}]};
   const tint = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.round(a*255).toString(16).padStart(2,"0") : c; };
@@ -679,15 +691,29 @@ const ratio = r => r.oi ? (r.vol/r.oi).toFixed(1)+"x" : "New";
 
 function tables(s, isLive){
   const win = s.flow_min, flow = win != null;
-  setTitle($("#flowTitle"), flow ? `Top Flow (last ${win}m)` : "Top Flow");
-  $("#flowDesc").textContent = flow ? `${isLive ? "최근" : "직전 스냅샷 이후"} ${win}분 동안 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다`
-                                    : "비교할 직전 시세가 없거나 장 마감 후라 유입을 계산하지 않았습니다.";
+  // Top Flow: 실시간은 1분·30분·60분 전 / 지난 장 마감 이후 중 고른 창, 지난 시점은 직전 매시 스냅샷 대비만 있다
+  const FW = s.flows, fw = FW ? FW[st.flowWin] : null;
+  document.querySelectorAll("#flowWins button").forEach(b => { b.disabled = !FW || !FW[b.dataset.w]; b.classList.toggle("on", !!FW && b.dataset.w === st.flowWin); });
+  let F, ftitle, fdesc;
+  if (FW){
+    F = fw?.rows || [];
+    ftitle = st.flowWin === "close" ? "Top Flow (since close)" : fw ? `Top Flow (last ${fw.min}m)` : "Top Flow";
+    fdesc = st.flowWin === "close" ? "지난 정규장 마감 이후 오늘 누적 거래량이 가장 많은 계약(거래량은 매일 0부터 다시 센다). Top Volume과 같은 기준"
+          : fw ? `${fw.min}분 전 시세 대비 거래량이 가장 많이 늘어난 계약. 미결제보다 크게 들어오면 신규 포지션일 가능성이 크다`
+          : "이 창을 계산할 만큼 앞선 기록이 아직 없다(수집 잡이 막 시작됐을 때)";
+  } else {
+    F = s.top_flow || [];
+    ftitle = flow ? `Top Flow (last ${win}m)` : "Top Flow";
+    fdesc = flow ? `직전 스냅샷 이후 ${win}분 동안 거래량이 가장 많이 늘어난 계약(지난 시점은 매시 스냅샷끼리만 비교한다)`
+                 : "비교할 직전 시세가 없거나 장 마감 후라 유입을 계산하지 않았습니다.";
+  }
+  setTitle($("#flowTitle"), ftitle);
+  $("#flowDesc").textContent = fdesc;
   const V = s.top_volume || s.top_contracts || [];
   $("#tVol").innerHTML = V.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>Volume</th><th>OI</th><th>Vol/OI</th><th>IV</th><th>Last</th></tr>` +
     V.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vol)}</b></td>
       <td>${n0(r.oi)}</td><td>${ratio(r)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
     : `<tr><td class="empty">No trades.</td></tr>`;
-  const F = s.top_flow || [];
   $("#tFlow").innerHTML = F.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>Flow</th><th>Volume</th><th>OI</th><th>IV</th><th>Last</th></tr>` +
     F.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vh)}</b></td>
       <td>${n0(r.vol)}</td><td>${n0(r.oi)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")

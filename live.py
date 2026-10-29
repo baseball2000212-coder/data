@@ -6,6 +6,7 @@
 """
 import os, sys, json, time, subprocess
 import requests
+import pandas as pd
 from collections import deque
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -16,7 +17,9 @@ ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
 SYMS = ["_SPX", "TSLA"]
 EVERY = 60                       # 초. CBOE 파일이 1분 남짓마다 새로 만들어져서 이보다 줄여도 소용없다
-FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량
+FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량 (만기별·행사가별 표)
+FLOW_WINS = {"1": 1, "30": 30, "60": 60}   # Top Flow 표의 비교 창(분). 화면에서 고른다
+KEEP = timedelta(minutes=61)     # 메모리에 남기는 분 단위 스냅샷 길이
 BRANCH = "live"
 SERIES_MAX = 1500
 FRAME_BAND = gex.FRAME_BAND                 # 분 단위 사다리(지난 시점 보기)에 남기는 행사가: 현재가 ±이 비율
@@ -48,6 +51,7 @@ class Live:
         self.fetch = fetch
         self.syms = syms or SYMS                      # 이번 잡이 갱신할 종목 (야간 잡은 SPX만)
         self.snaps = {s: deque() for s in SYMS}   # (시세 시각, option·volume·quote_et)
+        self.disk = {}                             # (종목, 날짜) → 그날 저장된 매시 스냅샷. 잡이 바뀐 직후 30·60분 창용
         self.last_q = {}
         self.docs = {}
         self.series = {s: [] for s in SYMS}
@@ -86,14 +90,14 @@ class Live:
                 self.last_q[s] = qt
                 _, day = session_of(qt, name in gex.GTH)      # 야간 거래는 다음 거래일로
                 snaps = self.snaps[s]
-                if snaps and snaps[-1][0].date() != day:
+                if snaps and snaps[-1][2] != day:
                     snaps.clear()
-                # 5분 이상 지난 스냅샷 중 가장 최근 것만 남긴다 → snaps[0]이 유입 계산 기준
-                while len(snaps) > 1 and qt - snaps[1][0] >= FLOW_WIN:
+                while len(snaps) > 1 and qt - snaps[1][0] >= KEEP:
                     snaps.popleft()
-                prev = snaps[0][1] if snaps else None
-                snaps.append((qt, df[["option", "volume", "quote_et"]].copy()))
-                m = gex.metrics(df, day, prev, name, "live")
+                prev = self.before(s, name, day, qt, FLOW_WIN)
+                prevs = {k: self.before(s, name, day, qt, timedelta(minutes=w)) for k, w in FLOW_WINS.items()}
+                snaps.append((qt, df[["option", "volume", "quote_et"]].copy(), day))
+                m = gex.metrics(df, day, prev, name, "live", prevs=prevs)
                 t = m.get("total") or {}
                 ser = [x for x in self.series[s] if x.get("date") == str(day) and x.get("t") != m["quote_et"]]
                 ser.append({"date": str(day), "t": m["quote_et"], "spot": m["spot"],
@@ -121,6 +125,33 @@ class Live:
                 print(f"[live FAIL] {name}: {e}", file=sys.stderr, flush=True)
         if changed:
             self.push()
+
+    def before(self, s, name, day, qt, win):
+        """시세 시각 qt보다 win 이상 앞선 스냅샷 중 가장 최근 것. 메모리(1분 간격)에 없으면 그날 저장된 매시 스냅샷에서 찾는다."""
+        need = win - timedelta(seconds=20)      # CBOE 갱신 간격이 정확히 60초가 아니라서 조금 봐준다
+        cap = max(win * 2, win + timedelta(minutes=2))   # 너무 오래된 것(1분 창에 1시간 전 등)은 쓰지 않는다
+        for q, d, _ in reversed(self.snaps[s]):
+            if qt - q >= need:
+                return d if qt - q <= cap else None
+        for q, d in reversed(self._disk(name, day)):
+            if qt - q >= need:
+                return d if qt - q <= cap else None
+        return None
+
+    def _disk(self, name, day):
+        key = (name, str(day))
+        if key not in self.disk:
+            out = []
+            for f in gex.day_files("data", name, day):
+                try:
+                    d = gex.load(f)
+                    q = gex.quote_time(d)
+                    out.append((q, pd.DataFrame({"option": d["option"], "volume": d["volume"],
+                                                 "quote_et": q.strftime(gex.FMT)})))
+                except Exception:
+                    pass
+            self.disk[key] = sorted(out, key=lambda x: x[0])
+        return self.disk[key]
 
     def add_frame(self, name, day, qt, m):
         """그 분의 행사가별 순 GEX(현재가 근처)와 요약을 한 장으로 남긴다 → 화면에서 지난 시점을 고를 수 있다."""
