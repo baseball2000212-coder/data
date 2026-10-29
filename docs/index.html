@@ -596,7 +596,7 @@ function priceGexChart(s, isLive){
   o2.plugins.vlines = {hlines: lines.map(l => ({...l, label:""}))};
   draw("#cLadder", {type:"bar", options:o2, data:{datasets:[
     {label:"Net GEX", data:net, backgroundColor:net.map(d=>d.x>=0?css("--red"):css("--blue")), barPercentage:0.55, categoryPercentage:1, maxBarThickness:9, grouped:false},
-    {type:"scatter", label:"First of day", data:dots, backgroundColor:css("--sub"), pointRadius:2.5}]}});
+    {type:"scatter", label:refT ? `Day start ${refT} ET${refT >= "17:00" || refT < "09:30" ? " (GTH)" : ""}` : "Day start", data:dots, backgroundColor:css("--sub"), pointRadius:2.5}]}});
 }
 
 function strikeChart(s){
