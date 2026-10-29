@@ -9,6 +9,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import gex
+from us_calendar import session_of
 
 ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
@@ -58,7 +59,7 @@ class Live:
                 if self.last_q.get(s) == qt:      # CBOE 파일이 아직 안 바뀜
                     continue
                 self.last_q[s] = qt
-                day = qt.date()
+                _, day = session_of(qt, name in gex.GTH)      # 야간 거래는 다음 거래일로
                 snaps = self.snaps[s]
                 if snaps and snaps[-1][0].date() != day:
                     snaps.clear()
@@ -74,7 +75,10 @@ class Live:
                             "net_m": (t.get("monthly") or {}).get("net"), "net_all": (t.get("all") or {}).get("net"),
                             "flip_m": (m.get("flip") or {}).get("monthly"), "vol": m.get("vol_total")})
                 self.series[s] = ser[-SERIES_MAX:]
-                self.docs[name] = {"symbol": name, "gex": name not in gex.NO_GEX,
+                opening = (self.docs.get(name) or {}).get("open")
+                if not opening or opening.get("date") != str(day):   # 그날 첫 계산 = 비교 기준(점)
+                    opening = {"date": str(day), "t": m["quote_et"], "strikes": m.get("strikes")}
+                self.docs[name] = {"symbol": name, "gex": name not in gex.NO_GEX, "open": opening,
                                    "updated_kst": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
                                    "cboe_ts_et": ts.astimezone(ET).strftime("%Y-%m-%d %H:%M:%S"),
                                    "live": m, "series": self.series[s]}
