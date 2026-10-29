@@ -13,7 +13,7 @@ PUSH_EACH=1 이면 회차마다 GEX 대시보드(docs/)를 갱신하고 커밋·
 LIVE=1 이면 회차 사이 대기 시간에 SPX·TSLA GEX를 1분마다 갱신한다(live.py).
 GitHub Actions cron은 UTC 고정이지만 목표 시각은 ET로 계산하므로 서머타임은 자동 처리.
 """
-import os, re, sys, time, subprocess
+import os, re, sys, time, subprocess, threading
 import requests
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -201,8 +201,27 @@ def main():
             continue
         print(f"waiting for {target:%H:%M} ET (시장 {tag}) ...", flush=True)
         sleep_until(target, live)
-        total_fails += collect(tag, day)
-        publish(tag, day)
+        if live is None:
+            total_fails += collect(tag, day)
+            publish(tag, day)
+            continue
+        # 회차 저장(8종목 받기·GEX 계산·커밋, 40~70초)은 따로 돌리고 그동안에도 실시간 갱신을 이어간다
+        res = {}
+
+        def slot_job(tag=tag):
+            try:
+                res["fails"] = collect(tag, day)
+                publish(tag, day)
+            except Exception as e:
+                res["fails"] = 1
+                print(f"[FAIL] 회차 {tag}: {e}", file=sys.stderr, flush=True)
+
+        th = threading.Thread(target=slot_job)
+        th.start()
+        while th.is_alive():
+            live.run_until(datetime.now(ET) + timedelta(seconds=3))
+        th.join()
+        total_fails += res.get("fails", 0)
     if live is not None:
         h, mnt = (EARLY_LIVE_END if day in EARLY_CLOSE else LIVE_END)[mode]
         live.run_until(now.replace(hour=h, minute=mnt, second=0, microsecond=0))
