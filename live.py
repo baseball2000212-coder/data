@@ -172,29 +172,36 @@ class Live:
         with open(idx_path, "w", encoding="utf-8") as fh:
             json.dump(idx, fh, ensure_ascii=False, separators=(",", ":"))
 
-    def push(self):
-        """docs 를 부모 없는 커밋 하나로 만들어 live 브랜치에 덮어쓴다."""
-        try:
-            env = dict(os.environ, GIT_INDEX_FILE=os.path.join(git("rev-parse", "--git-dir"), "live.idx"))
-            git("read-tree", "--empty", env=env)
-            mine = {s.lstrip("_") for s in self.syms}
-            files = {f"{n}.json": d for n, d in self.docs.items() if n in mine}
-            files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"] and n in mine})
-            try:   # 이 잡이 맡지 않은 종목 파일은 브랜치에 있는 최신본을 그대로 둔다(야간 잡이 TSLA를 옛것으로 덮어쓰지 않게)
-                git("fetch", "-q", "--depth", "1", "origin", BRANCH)
-                for path in git("ls-tree", "--name-only", "FETCH_HEAD").split():
-                    if path not in files and path.split("_")[0].split(".")[0] not in mine:
-                        files[path] = json.loads(git("show", f"FETCH_HEAD:{path}"))
-            except Exception:
-                pass
-            for path, doc in files.items():
-                blob = git("hash-object", "-w", "--stdin", inp=json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
-                git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env)
-            tree = git("write-tree", env=env)
-            commit = git("commit-tree", tree, "-m", f"live {datetime.now(ET):%Y-%m-%d %H:%M} ET")
-            git("push", "-q", "-f", "origin", f"{commit}:refs/heads/{BRANCH}")
-        except subprocess.CalledProcessError as e:
-            print(f"[live push FAIL] {e.stderr.strip()[:300]}", file=sys.stderr, flush=True)
+    def push(self, retry=2):
+        """docs 를 부모 없는 커밋 하나로 만들어 live 브랜치에 덮어쓴다.
+        다른 잡(정규장 잡과 야간 잡이 겹치는 시간)이 그 사이 썼으면 거절되므로, 다시 받아 합친 뒤 재시도한다."""
+        mine = {s.lstrip("_") for s in self.syms}
+        for attempt in range(retry + 1):
+            try:
+                base = ""
+                files = {f"{n}.json": d for n, d in self.docs.items() if n in mine}
+                files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"] and n in mine})
+                try:   # 이 잡이 맡지 않은 종목 파일은 브랜치에 있는 최신본을 그대로 둔다
+                    git("fetch", "-q", "--depth", "1", "origin", BRANCH)
+                    base = git("rev-parse", "FETCH_HEAD")
+                    for path in git("ls-tree", "--name-only", "FETCH_HEAD").split():
+                        if path not in files and path.split("_")[0].split(".")[0] not in mine:
+                            files[path] = json.loads(git("show", f"FETCH_HEAD:{path}"))
+                except Exception:
+                    pass
+                env = dict(os.environ, GIT_INDEX_FILE=os.path.join(git("rev-parse", "--git-dir"), "live.idx"))
+                git("read-tree", "--empty", env=env)
+                for path, doc in files.items():
+                    blob = git("hash-object", "-w", "--stdin", inp=json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
+                    git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env)
+                tree = git("write-tree", env=env)
+                commit = git("commit-tree", tree, "-m", f"live {datetime.now(ET):%Y-%m-%d %H:%M} ET")
+                lease = f"--force-with-lease=refs/heads/{BRANCH}:{base}" if base else "--force"
+                git("push", "-q", lease, "origin", f"{commit}:refs/heads/{BRANCH}")
+                return
+            except subprocess.CalledProcessError as e:
+                print(f"[live push 재시도 {attempt + 1}] {e.stderr.strip()[:200]}", file=sys.stderr, flush=True)
+                time.sleep(2)
 
     def run_until(self, end):
         """end(ET)까지 EVERY초마다 갱신."""
