@@ -17,7 +17,7 @@ ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
 SYMS = ["_SPX", "TSLA"]
 EVERY = 60                       # 초. CBOE 파일이 1분 남짓마다 새로 만들어져서 이보다 줄여도 소용없다
-AFTER = 4                        # 다음 파일은 직전 파일 시각 + EVERY + 이 초 뒤에 받으러 간다(갱신 직후에 잡게)
+AFTER = 2                        # 다음 파일은 직전 파일 시각 + EVERY + 이 초 뒤에 받으러 간다(갱신 직후에 잡게)
 FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량 (만기별·행사가별 표)
 FLOW_WINS = {"1": 1, "30": 30, "60": 60}   # Top Flow 표의 비교 창(분). 화면에서 고른다
 KEEP = timedelta(minutes=61)     # 메모리에 남기는 분 단위 스냅샷 길이
@@ -90,9 +90,9 @@ class Live:
                 df, ts = self.fetch(s)
                 qt = gex.quote_time(df)
                 now = datetime.now(timezone.utc)
-                if self.last_q.get(s) == qt:      # CBOE 파일이 아직 안 바뀜 → 5·10·20…초 뒤 다시(최대 60초)
-                    k = self.miss[s] = self.miss.get(s, 0) + 1
-                    self.due[s] = now + timedelta(seconds=min(5 * 2 ** (k - 1), EVERY))
+                if self.last_q.get(s) == qt:      # CBOE 파일이 아직 안 바뀜 → 30초 동안은 3초마다, 그 뒤엔 천천히(최대 60초)
+                    k = self.miss[s] = self.miss.get(s, 0) + 1   # CBOE 파일 시각이 매번 60초 간격은 아니라 촘촘히 본다
+                    self.due[s] = now + timedelta(seconds=3 if k <= 10 else min(15 * (k - 10), EVERY))
                     continue
                 self.miss[s] = 0
                 nxt = ts + timedelta(seconds=EVERY + AFTER)     # 다음 파일이 나올 즈음
