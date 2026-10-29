@@ -4,14 +4,14 @@
 대시보드는 raw.githubusercontent.com 에서 바로 읽는다(GitHub Pages 빌드 제한과 무관).
   live/<종목>.json = {"live": 최신 GEX·거래량, "series": 그날 분 단위 추이}
 """
-import os, sys, json, time, subprocess
+import io, os, sys, json, time, subprocess
 import requests
 import pandas as pd
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import gex
-from us_calendar import session_of
+from us_calendar import session_of, prev_trading_day
 
 ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
@@ -53,6 +53,7 @@ class Live:
         self.syms = syms or SYMS                      # 이번 잡이 갱신할 종목 (야간 잡은 SPX만)
         self.snaps = {s: deque() for s in SYMS}   # (시세 시각, option·volume·quote_et)
         self.disk = {}                             # (종목, 날짜) → 그날 저장된 매시 스냅샷. 잡이 바뀐 직후 30·60분 창용
+        self.pvol = {}                             # (종목, 날짜) → (전 거래일, 그날 마지막 스냅샷 거래량). 전일 대비 유입용
         self.last_q = {}
         self.due = {}                              # 종목별 다음에 받으러 갈 시각(UTC). CBOE 갱신 주기에 맞춘다
         self.miss = {}                             # 아직 안 바뀐 파일을 연달아 받은 횟수(뒤로 물러나기용)
@@ -106,7 +107,7 @@ class Live:
                 prev = self.before(s, name, day, qt, FLOW_WIN)
                 prevs = {k: self.before(s, name, day, qt, timedelta(minutes=w)) for k, w in FLOW_WINS.items()}
                 snaps.append((qt, df[["option", "volume", "quote_et"]].copy(), day))
-                m = gex.metrics(df, day, prev, name, "live", prevs=prevs)
+                m = gex.metrics(df, day, prev, name, "live", prevs=prevs, prev_day=self.prev_volume(name, day))
                 last = (self.docs.get(name) or {}).get("live") or {}
                 if m.get("gex") is False and last.get("gex") and last.get("date") == str(day) and name not in gex.NO_GEX:
                     # 장 시작 첫 시세처럼 CBOE 그릭스가 잠깐 비는 분: 차트가 사라지지 않게 직전 계산값을 이어 쓴다
@@ -155,6 +156,30 @@ class Live:
             if qt - q >= need:
                 return d if qt - q <= cap else None
         return None
+
+    def prev_volume(self, name, day):
+        """전 거래일 마지막 스냅샷(eod 우선)의 계약별 거래량. 저장소 커밋에서 그 파일 하나만 받는다(부분 체크아웃이라 폴더는 없다)."""
+        key = (name, str(day))
+        if key not in self.pvol:
+            self.pvol[key] = None
+            d = day
+            for _ in range(4):                     # 그날 파일이 없으면(휴장·수집 실패) 하루씩 더 앞으로
+                d = prev_trading_day(d)
+                try:
+                    fs = git("ls-tree", "--name-only", "HEAD", f"data/{name}/{d}/").split()
+                    fs = [f for f in fs if "_test" not in f]
+                    if not fs:
+                        continue
+                    f = max(fs, key=lambda p: gex.tag_key(gex.tag_of(p)))
+                    raw = subprocess.run(["git", "show", f"HEAD:{f}"], capture_output=True, check=True).stdout
+                    pdf = pd.read_csv(io.BytesIO(raw), compression="gzip" if f.endswith(".gz") else None,
+                                      usecols=["option", "volume"])
+                    self.pvol[key] = (d, pdf)
+                    print(f"[live] {name} 전일 거래량 기준: {f}", flush=True)
+                    break
+                except Exception as e:
+                    print(f"[live] {name} 전일 거래량 실패 {d}: {e}", file=sys.stderr, flush=True)
+        return self.pvol[key]
 
     def _disk(self, name, day):
         key = (name, str(day))
