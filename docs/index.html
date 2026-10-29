@@ -75,10 +75,10 @@ header p{margin:0;color:var(--sub);font-size:15px}
 .card .d{font-size:13px;color:var(--sub);margin:0 0 12px}
 .chart{position:relative;height:320px}
 .chart.sm{height:260px}
-.pg{display:flex;gap:0;height:420px}
+.pg{display:flex;gap:0;height:500px}
 .pg .l{position:relative;flex:1 1 68%;min-width:0}
 .pg .r{position:relative;flex:1 1 32%;min-width:0}
-@media (max-width:640px){.pg{height:360px}.pg .l{flex-basis:58%}.pg .r{flex-basis:42%}}
+@media (max-width:640px){.pg{height:420px}.pg .l{flex-basis:58%}.pg .r{flex-basis:42%}}
 .tbl{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
 th{font-size:12px;color:var(--mute);text-align:right;font-weight:700;padding:6px 8px;border-bottom:1.5px solid var(--line);white-space:nowrap}
@@ -471,6 +471,7 @@ function kpis(s, gx){
 }
 
 const PAD = {SPX: 0.006, TSLA: 0.025};
+const LADDER_N = {SPX: 20, TSLA: 10};   // SpotGammaFlow 오른쪽 막대: 현재가 위아래로 최소 이만큼의 행사가가 보이게 가격 축을 넓힌다
 const ampm = t => { const [h, m] = t.replace(/^\D+/, "").split(":").map(Number); return `${(h % 12) || 12}:${String(m).padStart(2,"0")} ${h < 12 ? "AM" : "PM"}`; };
 // 캔들에 올리면 뜨는 상자: 시각 · 종목 등락률(전일 종가 대비) · 시가·고가·저가·종가 · 분당 옵션 거래량
 function ohlcTip(cs, prev, sym){
@@ -540,8 +541,14 @@ function priceGexChart(s, isLive){
   const prices = cs.length ? cs.flatMap(c => [c.h, c.l]) : line.map(p => p.y);
   prices.push(s.spot);
   const pad = PAD[st.sym] || 0.02;
-  const lo = Math.min(...prices) * (1 - pad), hi = Math.max(...prices) * (1 + pad);
+  let lo = Math.min(...prices) * (1 - pad), hi = Math.max(...prices) * (1 + pad);
   const B = bk(s), k = s.strikes[B];
+  const ks = k.k.filter((x, i) => (k.c[i] || 0) || (k.p[i] || 0)), N = LADDER_N[st.sym] || 10;
+  if (ks.length > 1){
+    const i = ks.findIndex(x => x >= s.spot), j = i < 0 ? ks.length : i, step = ks[1] - ks[0];
+    lo = Math.min(lo, ks[Math.max(0, j - N)] - step / 2);
+    hi = Math.max(hi, ks[Math.min(ks.length - 1, j + N - 1)] + step / 2);
+  }
   const net = k.k.map((x,i) => ({x:(k.c[i]||0) + (k.p[i]||0), y:x})).filter(d => d.y >= lo && d.y <= hi);
   let dots = [], refT = null;
   if (s.frame && fd?.frames?.length){ const f0 = fd.frames[0], arr = {monthly:f0.m, all:f0.a, "0dte":f0.z}[B] || [];
@@ -557,7 +564,10 @@ function priceGexChart(s, isLive){
   const o1 = baseOpts();
   o1.plugins.legend.display = false;
   o1.scales.y = {...o1.scales.y, min:lo, max:hi, position:"right"};
-  o1.scales.x.ticks.maxTicksLimit = 7; o1.scales.x.grid = {display:false};
+  o1.scales.x.ticks.maxTicksLimit = innerWidth < 640 ? 3 : 7; o1.scales.x.grid = {display:false};
+  // 두 차트의 x축 높이를 같게 고정해야 같은 가격이 같은 높이에 온다(현재가 점선이 이어지게)
+  const fixX = o => { o.scales.x.ticks.maxRotation = 0; o.scales.x.afterFit = a => { a.height = 26; }; };
+  fixX(o1);
   o1.plugins.vlines = {hlines: lines};
   if (cs.length){
     o1.plugins.tooltip = {enabled:false, external:ohlcTip(cs, s.prev_close, st.sym)};
@@ -575,8 +585,10 @@ function priceGexChart(s, isLive){
   o2.indexAxis = "y";
   o2.interaction = {mode:"nearest", axis:"y", intersect:false};
   o2.plugins.legend.display = false;
-  o2.scales.y = {...o2.scales.y, type:"linear", min:lo, max:hi, display:false};
-  o2.scales.x.ticks.callback = v => money(v); o2.scales.x.ticks.maxTicksLimit = 4;
+  o2.scales.y = {...o2.scales.y, type:"linear", min:lo, max:hi, display:false, offset:false};   // 막대 축 기본 여백을 끄면 가격 축과 눈금이 같아진다
+  const a1 = st.charts["#cPrice"]?.chartArea;   // 그림 영역 위쪽도 가격 차트와 맞춘다
+  if (a1) o2.layout = {padding:{top:a1.top}};
+  o2.scales.x.ticks.callback = v => money(v); o2.scales.x.ticks.maxTicksLimit = innerWidth < 640 ? 3 : 4; fixX(o2);
   o2.plugins.tooltip.callbacks = {title: it => `Strike ${it[0].parsed.y}`, label: it => `${it.dataset.label} ${money(it.parsed.x)}`};
   o2.plugins.vlines = {hlines: lines.map(l => ({...l, label:""}))};
   draw("#cLadder", {type:"bar", options:o2, data:{datasets:[
