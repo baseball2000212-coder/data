@@ -1,0 +1,28 @@
+name: gex backfill
+# 쌓인 스냅샷 전체로 GEX 일별 추이(docs/gex/history)를 다시 계산한다. 계산식을 바꿨을 때만 수동으로 돌린다.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pandas numpy
+      - run: python gex.py --all
+      - name: commit
+        run: |
+          git config user.name "collector-bot"
+          git config user.email "bot@users.noreply.github.com"
+          bash commit.sh "gex backfill"
