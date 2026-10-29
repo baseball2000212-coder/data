@@ -189,7 +189,8 @@ def metrics(df, day, prev, sym, tag):
                  "vh": None if prev is None else int(r.vh), "vol": int(r.volume or 0), "oi": int(r.open_interest or 0),
                  "iv": round(float(r.iv) * 100, 1) if pd.notna(r.iv) else None,
                  "last": float(r.last_trade_price) if pd.notna(r.last_trade_price) else None} for r in t.itertuples()]
-    live_k = df["expiry"] >= day          # 지난 만기(야간에 남아 있는 전날 0DTE 등)는 거래량 표에서 뺀다
+    # 지난 만기(야간에 남아 있는 전날 0DTE 등)와 현재가 ±20% 밖 계약(박스 스프레드용 극외가 등)은 거래량 표에서 뺀다
+    live_k = (df["expiry"] >= day) & df["strike"].between(spot * 0.8, spot * 1.2)
     out["top_volume"] = rows(df[(vol > 0) & live_k].nlargest(12, "volume"))
     out["top_flow"] = rows(df[(df["vh"].fillna(0) > 0) & live_k].nlargest(12, "vh")) if prev is not None else []
     key = "vh" if prev is not None else "volume"
