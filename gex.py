@@ -131,8 +131,9 @@ def implied_spot(df, qt, day, sym):
     return float(np.median(fs) * np.exp(-(R - DIV.get(sym, 0.0)) * T))
 
 
-def metrics(df, day, prev, sym, tag):
-    """prev: 직전 스냅샷(option·volume·quote_et 열만 있어도 됨). 있으면 그 사이 늘어난 거래량(flow)을 계산."""
+def metrics(df, day, prev, sym, tag, prevs=None):
+    """prev: 직전 스냅샷(option·volume·quote_et 열만 있어도 됨). 있으면 그 사이 늘어난 거래량(flow)을 계산.
+    prevs: {창 이름: 그만큼 전 스냅샷 또는 None} → 창마다 유입 상위(flows)를 따로 만든다(실시간용)."""
     spot = float(df["spot"].iloc[0])
     qt = quote_time(df)
     df = df.copy()
@@ -189,15 +190,29 @@ def metrics(df, day, prev, sym, tag):
         out["atm_iv"] = {"expiry": str(e0), "strike": float(k0), "iv": round(float(iv) * 100, 2)}
 
     # 거래량: 누적 상위(그날 가장 많이 거래된 계약)와 유입 상위(직전 스냅샷 이후 늘어난 거래량)
-    def rows(t):
+    def rows(t, has_vh=None):
+        has_vh = prev is not None if has_vh is None else has_vh
         return [{"expiry": str(r.expiry), "bucket": r.bucket, "cp": r.cp, "strike": float(r.strike),
-                 "vh": None if prev is None else int(r.vh), "vol": int(r.volume or 0), "oi": int(r.open_interest or 0),
+                 "vh": int(r.vh) if has_vh else None, "vol": int(r.volume or 0), "oi": int(r.open_interest or 0),
                  "iv": round(float(r.iv) * 100, 1) if pd.notna(r.iv) else None,
                  "last": float(r.last_trade_price) if pd.notna(r.last_trade_price) else None} for r in t.itertuples()]
     # 지난 만기(야간에 남아 있는 전날 0DTE 등)와 현재가 ±20% 밖 계약(박스 스프레드용 극외가 등)은 거래량 표에서 뺀다
     live_k = (df["expiry"] >= day) & df["strike"].between(spot * 0.8, spot * 1.2)
     out["top_volume"] = rows(df[(vol > 0) & live_k].nlargest(12, "volume"))
     out["top_flow"] = rows(df[(df["vh"].fillna(0) > 0) & live_k].nlargest(12, "vh")) if prev is not None else []
+    if prevs is not None:
+        # 창별 유입: 그만큼 전 스냅샷 대비 늘어난 거래량. close = 지난 정규장 마감 이후 = 오늘 누적 거래량(거래량은 매일 0부터 다시 센다)
+        out["flows"] = {}
+        for key, pdf in prevs.items():
+            if pdf is None:
+                out["flows"][key] = None
+                continue
+            pv = df["option"].map(pdf.set_index("option")["volume"].fillna(0)).fillna(0)
+            t = df.assign(vh=(vol - pv).clip(lower=0))
+            t = t[(t["vh"] > 0) & live_k]
+            out["flows"][key] = {"min": round((qt - quote_time(pdf)).total_seconds() / 60), "rows": rows(t.nlargest(12, "vh"), True)}
+        t = df.assign(vh=vol)[(vol > 0) & live_k]
+        out["flows"]["close"] = {"min": None, "rows": rows(t.nlargest(12, "vh"), True)}
     key = "vh" if prev is not None else "volume"
     agg = {"vol": ("volume", "sum"), "vh": ("vh", "sum"), "oi": ("open_interest", "sum")}
     ex = df[live_k].groupby(["expiry", "bucket"]).agg(**agg).reset_index()
