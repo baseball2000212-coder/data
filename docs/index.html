@@ -173,7 +173,7 @@ th:first-child,td:first-child{text-align:left}
     순 GEX가 <b>양(+)</b>이면 딜러가 오르면 팔고 내리면 사서 변동을 줄이는 쪽, <b>음(−)</b>이면 변동을 키우는 쪽이다.
     TSLA처럼 개인 콜 매수가 많은 종목은 딜러가 콜을 판 상태일 수 있으니 콜·풋 막대를 따로 보고 판단한다.<br>
     <b>월물 기준인 이유</b> — 미결제약정은 전일 마감 기준이라 오늘 생기고 사라지는 0DTE 포지션은 잡히지 않는다. 그래서 헤지 포지션이 남아 있는 월물(SPX는 AM 정산 월물 루트 SPX, TSLA는 셋째 금요일)을 기본으로 보고, 0DTE·위클리는 거래량 표로 본다.<br>
-    <b>시세</b> — CBOE 무료 시세라 15분 늦다. 시각은 모두 시세가 반영하는 시장 시각(ET). 장중에는 1분마다 다시 계산하고, 매시 스냅샷은 원자료와 함께 저장한다.
+    <b>시세</b> — 자료: Cboe 지연 시세(15분). 학습·연구용이며 투자 판단의 근거로 쓰지 않는다. CBOE 무료 시세라 15분 늦다. 시각은 모두 시세가 반영하는 시장 시각(ET). 장중에는 1분마다 다시 계산하고, 매시 스냅샷은 원자료와 함께 저장한다.
   </div>
 </div>
 
@@ -184,6 +184,7 @@ const SYMS = ["SPX", "TSLA"];
 const POLL = 65;   // GitHub API 무인증 한도(시간당 60회) 안쪽. 바뀌지 않은 파일은 304라 한도에 안 잡힌다
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const alpha = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.round(a*255).toString(16).padStart(2,"0") : c; };
 const BUCKETS = [["monthly","월물"],["all","전체 만기"]];
 const BUCKET_KO = {monthly:"월물", weekly:"위클리", "0dte":"0DTE"};
 const st = {sym:null, live:null, hourly:null, view:"live", bucket:"monthly", charts:{}, next:POLL};
@@ -224,14 +225,23 @@ function baseOpts(){
 function draw(id, cfg){ st.charts[id]?.destroy(); st.charts[id] = new Chart($(id), cfg); }
 async function getJSON(u){ try { const r = await fetch(`${u}?t=${Date.now()}`, {cache:"no-store"}); return r.ok ? r.json() : null; } catch(e){ return null; } }
 // 1분 갱신본은 raw 주소가 5분 캐시돼서 GitHub API로 읽는다. 한도를 넘기면 raw(최대 5분 늦음)로 대신한다
+// GitHub API 무인증 한도는 공인 IP당 시간당 60회라 같은 와이파이에서 여러 명이 보면 같이 쓴다.
+// 한도가 바닥나면 초기화될 때까지 raw(최대 5분 늦음)로 바꾸고 화면에 알린다
 const etags = {}, liveCache = {};
+let apiBlockedUntil = 0;
 async function getLive(sym){
-  try {
-    const h = {Accept: "application/vnd.github.raw+json"}; if (etags[sym]) h["If-None-Match"] = etags[sym];
-    const r = await fetch(`${API}/${sym}.json?ref=live`, {headers: h, cache: "no-store"});
-    if (r.status === 304 && liveCache[sym]) return liveCache[sym];
-    if (r.ok){ etags[sym] = r.headers.get("ETag"); liveCache[sym] = await r.json(); return liveCache[sym]; }
-  } catch(e){}
+  if (Date.now() >= apiBlockedUntil){
+    try {
+      const h = {Accept: "application/vnd.github.raw+json"}; if (etags[sym]) h["If-None-Match"] = etags[sym];
+      const r = await fetch(`${API}/${sym}.json?ref=live`, {headers: h, cache: "no-store"});
+      const left = +(r.headers.get("X-RateLimit-Remaining") ?? 99), reset = +(r.headers.get("X-RateLimit-Reset") ?? 0) * 1000;
+      if (r.status === 403 || r.status === 429 || left <= 1) apiBlockedUntil = reset || Date.now() + 15*60*1000;
+      st.slow = Date.now() < apiBlockedUntil;
+      if (r.status === 304 && liveCache[sym]) return liveCache[sym];
+      if (r.ok){ etags[sym] = r.headers.get("ETag"); liveCache[sym] = await r.json(); return liveCache[sym]; }
+    } catch(e){}
+  }
+  st.slow = true;
   return getJSON(`${RAW}/live/${sym}.json`);
 }
 
@@ -306,7 +316,8 @@ function render(){
   $("#meta").innerHTML = `<span><span class="dot ${isLive && fresh(L) ? "on" : ""}"></span>${st.sym} · ${s.date || H?.date || ""} 세션${s.session ? " (" + s.session + ")" : ""}</span>` +
     `<span>시세 ${qd}${s.quote_et} ET · KST ${s.quote_kst}</span>` +
     (isLive ? `<span>계산 ${L.updated_kst.slice(11)} KST</span>` : `<span>매시 스냅샷</span>`) +
-    (s.spot_note ? `<span>${s.spot_note}</span>` : "");
+    (s.spot_note ? `<span>${s.spot_note}</span>` : "") +
+    (isLive && st.slow ? `<span style="color:var(--orange)">접속이 많아 갱신이 최대 5분 늦을 수 있음</span>` : "");
   const gx = s.gex !== false && s.total;
   $("#gexArea").classList.toggle("hide", !gx); $("#bucketCtl").classList.toggle("hide", !gx);
   kpis(s, gx);
@@ -438,10 +449,11 @@ function intradayChart(){
   const dense = pts.length > 40;
   const tint = (v, a) => { const c = css(v); return c.startsWith("#") ? c + Math.round(a*255).toString(16).padStart(2,"0") : c; };
   draw("#cIntraday", {data:{labels:pts.map(x=>x.t), datasets:[
-    dense ? {type:"line", label:"순 GEX", data:pts.map(x=>x[key]), borderColor:css("--sub"), borderWidth:1.2, pointRadius:0, yAxisID:"y",
+    dense ? {type:"line", label:"순 GEX", data:pts.map(x=>x[key]), borderColor:css("--sub"), borderWidth:1.2, pointRadius:0, yAxisID:"y", order:2,
              fill:{target:"origin", above:tint("--red", .35), below:tint("--blue", .35)}}
-          : {type:"bar", label:"순 GEX", data:pts.map(x=>x[key]), backgroundColor:pts.map(x=>x[key]>=0?css("--red"):css("--blue")), yAxisID:"y"},
-    {type:"line", label:"현재가", data:pts.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2, pointRadius:pts.length>30?0:3, yAxisID:"y2"}]}, options:o});
+          : {type:"bar", label:"순 GEX", data:pts.map(x=>x[key]), backgroundColor:pts.map(x=>alpha(x[key]>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
+    {type:"line", label:"현재가", data:pts.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:pts.length>30?0:3.5,
+     pointBackgroundColor:css("--ink"), yAxisID:"y2", order:0}]}, options:o});
 }
 
 function historyChart(){
@@ -452,9 +464,9 @@ function historyChart(){
   o.scales.y2 = {position:"right", grid:{display:false}, ticks:{color:css("--mute")}};
   o.scales.x.ticks.maxTicksLimit = 10;
   draw("#cHistory", {data:{labels:h.map(x=>x.date.slice(5)), datasets:[
-    {type:"bar", label:"월물 순 GEX", data:h.map(x=>x.net_monthly), backgroundColor:h.map(x=>x.net_monthly>=0?css("--red"):css("--blue")), yAxisID:"y"},
-    {type:"line", label:"현재가", data:h.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2, pointRadius:0, yAxisID:"y2"},
-    {type:"line", label:"감마 전환점", data:h.map(x=>x.flip_monthly), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2"}]}, options:o});
+    {type:"bar", label:"월물 순 GEX", data:h.map(x=>x.net_monthly), backgroundColor:h.map(x=>alpha(x.net_monthly>=0?"--red":"--blue", .45)), yAxisID:"y", order:2},
+    {type:"line", label:"현재가", data:h.map(x=>x.spot), borderColor:css("--ink"), borderWidth:2.2, pointRadius:0, yAxisID:"y2", order:0},
+    {type:"line", label:"감마 전환점", data:h.map(x=>x.flip_monthly), borderColor:css("--orange"), borderWidth:1.5, borderDash:[4,3], pointRadius:0, yAxisID:"y2", order:1}]}, options:o});
 }
 
 const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
