@@ -23,7 +23,9 @@ permissions:
 # 같은 시간대에 잡이 두 개 뜨면(외부 크론 + GitHub 백업 예약) 하나는 대기시킴.
 # 뒤에 도는 잡은 이미 받은 회차를 건너뛰므로 덮어쓰지 않는다.
 concurrency:
-  group: ${{ github.event.inputs.mode == 'gth' && 'gth' || 'collect' }}   # 야간 잡은 따로 줄 서서 정규장 수집을 막지 않는다
+  # 모드별로 줄을 세운다(외부 예약 + GitHub 백업 예약이 같은 모드로 겹치면 하나는 대기). 야간 잡은 정규장 수집을 막지 않는다.
+  # am·pm은 서로 다른 줄이라 pm이 미리 떠서 기다리다가 am 실시간이 끝나는 순간 이어받는다(교대 공백 없애기)
+  group: collect-${{ github.event.inputs.mode || (github.event.schedule == '0 13 * * 1-5' && 'am') || (github.event.schedule == '0 17 * * 1-5' && 'pm') || 'eod' }}
   cancel-in-progress: false
 
 jobs:

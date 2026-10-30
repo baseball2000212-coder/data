@@ -38,6 +38,7 @@ EARLY_SLOTS = {   # 13:00 조기 폐장일
 }
 # 실시간 갱신을 멈추는 시각(ET, 수집 시각). am은 pm 잡이 이어받기 직전까지, pm은 옵션 마감 시세(16:15)를 받을 때까지
 LIVE_END = {"am": (13, 50), "pm": (16, 31)}
+HANDOFF_WAIT = 25                 # 초. am 실시간이 멈춘 뒤 교대 스냅샷 push가 끝날 시간을 주고 pm이 이어받는다
 GTH_MAX = timedelta(hours=5, minutes=40)   # 야간 잡 하나의 최대 길이 (GitHub 잡 6시간 제한 안쪽)
 EARLY_LIVE_END = {"am": (13, 31), "pm": (13, 31)}
 
@@ -222,6 +223,17 @@ def main():
         # GitHub 백업 예약은 몇 시간씩 늦게 뜨기도 한다(10/30 am 예약이 16:31 ET에 떠서 pm 잡을 하나 더 띄웠다)
         print(f"skip {mode}: 그 시간대가 이미 끝남({h:02d}:{mnt:02d} ET). 다음 잡도 띄우지 않는다", flush=True)
         return
+
+    if mode == "pm" and day in EARLY_CLOSE:   # 조기 폐장일은 am 잡이 마감·보관까지 맡는다
+        print("skip pm: 조기 폐장일", flush=True)
+        return
+    if mode == "pm" and os.environ.get("LIVE") == "1":
+        # pm은 am과 다른 줄이라 미리 떠 있을 수 있다. am 실시간이 끝나고 교대 스냅샷을 올릴 때까지 기다렸다가 이어받는다
+        h0, m0 = LIVE_END["am"]
+        handoff = now.replace(hour=h0, minute=m0, second=0, microsecond=0) + timedelta(seconds=HANDOFF_WAIT)
+        if datetime.now(ET) < handoff:
+            print(f"pm: am 실시간이 끝나는 {handoff:%H:%M:%S} ET까지 대기", flush=True)
+            sleep_until(handoff)
 
     live = None
     if os.environ.get("LIVE") == "1":
