@@ -1,4 +1,5 @@
 name: collect cboe options
+run-name: collect ${{ github.event.inputs.mode || 'schedule' }}   # 잡이 다음 잡을 띄울 때 같은 모드가 이미 있는지 이 이름으로 본다
 
 on:
   workflow_dispatch:
@@ -17,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # 끝나기 직전에 다음 잡을 workflow_dispatch로 띄운다(collect_cboe.chain)
 
 # 같은 시간대에 잡이 두 개 뜨면(외부 크론 + GitHub 백업 예약) 하나는 대기시킴.
 # 뒤에 도는 잡은 이미 받은 회차를 건너뛰므로 덮어쓰지 않는다.
@@ -70,6 +72,7 @@ jobs:
         env:
           PUSH_EACH: ${{ steps.m.outputs.mode == 'test' && '0' || '1' }}
           LIVE: ${{ (steps.m.outputs.mode == 'am' || steps.m.outputs.mode == 'pm') && '1' || '0' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python collect_cboe.py ${{ steps.m.outputs.mode }}
 
       - name: commit (남은 변경분)

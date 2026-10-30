@@ -139,6 +139,28 @@ def publish(tag, day):
     subprocess.run(["bash", "commit.sh", f"collect {tag} {day}"], check=False)
 
 
+def chain(mode):
+    """끝나기 직전에 다음 잡을 띄워 수집이 끊기지 않게 한다(정규장 오전 → 오후 → 야간 → … → 다음 날 오전).
+    같은 모드 잡이 이미 대기·실행 중이면 띄우지 않는다(예약 작업·백업 크론과 겹쳐 잡이 불어나지 않게)."""
+    tok, repo = os.environ.get("GITHUB_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
+    if not tok or not repo:
+        return
+    h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
+    base = f"https://api.github.com/repos/{repo}/actions/workflows/collect.yml"
+    try:
+        me, runs = os.environ.get("GITHUB_RUN_ID"), []
+        for status in ("queued", "in_progress", "waiting", "pending", "requested"):
+            r = requests.get(f"{base}/runs", params={"status": status, "per_page": 30}, headers=h, timeout=20)
+            runs += r.json().get("workflow_runs", [])
+        if any(x.get("display_title") == f"collect {mode}" and str(x.get("id")) != me for x in runs):
+            print(f"[chain] {mode}: 이미 대기·실행 중이라 건너뜀", flush=True)
+            return
+        r = requests.post(f"{base}/dispatches", json={"ref": "main", "inputs": {"mode": mode}}, headers=h, timeout=20)
+        print(f"[chain] 다음 잡 {mode} 띄움 (HTTP {r.status_code})", flush=True)
+    except Exception as e:
+        print(f"[chain FAIL] {mode}: {e}", file=sys.stderr, flush=True)
+
+
 def sleep_until(target, live=None):
     """target(ET datetime)까지 대기. live가 있으면 기다리는 동안 1분마다 실시간 GEX를 갱신한다."""
     if live is not None:
@@ -172,6 +194,13 @@ def main():
         if now.hour < 12:                                   # 아침 잡은 야간 거래가 끝나는 09:15에서 멈춘다
             end = min(end, now.replace(hour=9, minute=15, second=0, microsecond=0) + DELAY)
         Live(fetch, syms=["_SPX"]).run_until(end)
+        t = datetime.now(ET)
+        morning_end = t.replace(hour=9, minute=15, second=0, microsecond=0) + DELAY
+        if t.hour < 12 and t >= morning_end - timedelta(minutes=1):
+            if is_trading_day(t.date()):
+                chain("am")                                 # 야간이 끝나면 바로 정규장 잡으로
+        else:
+            chain("gth")                                    # 야간이 남았으면 이어서
         return
 
     if not is_trading_day(day):
@@ -236,6 +265,10 @@ def main():
                 subprocess.run(["bash", "commit.sh", f"archive {day}"], check=False)
             except Exception as e:
                 print(f"[archive FAIL] {e}", file=sys.stderr, flush=True)
+    if mode == "am":
+        chain("pm")
+    elif mode == "pm" and is_trading_day(day + timedelta(days=1)):
+        chain("gth")                                        # 내일이 거래일이면 오늘 밤 야간 거래가 있다. 20:15 ET까지는 기다리며 돈다
     sys.exit(1 if total_fails else 0)
 
 
