@@ -217,6 +217,12 @@ def main():
         publish("eod", day)
         sys.exit(1 if fails else 0)
 
+    h, mnt = (EARLY_LIVE_END if day in EARLY_CLOSE else LIVE_END)[mode]
+    if now >= now.replace(hour=h, minute=mnt, second=0, microsecond=0):
+        # GitHub 백업 예약은 몇 시간씩 늦게 뜨기도 한다(10/30 am 예약이 16:31 ET에 떠서 pm 잡을 하나 더 띄웠다)
+        print(f"skip {mode}: 그 시간대가 이미 끝남({h:02d}:{mnt:02d} ET). 다음 잡도 띄우지 않는다", flush=True)
+        return
+
     live = None
     if os.environ.get("LIVE") == "1":
         from live import Live
@@ -252,7 +258,6 @@ def main():
         th.join()
         total_fails += res.get("fails", 0)
     if live is not None:
-        h, mnt = (EARLY_LIVE_END if day in EARLY_CLOSE else LIVE_END)[mode]
         live.run_until(now.replace(hour=h, minute=mnt, second=0, microsecond=0))
         if mode == "am" and day not in EARLY_CLOSE:   # pm 잡이 30·60분 창을 바로 채울 수 있게 최근 스냅샷을 넘긴다
             try:
