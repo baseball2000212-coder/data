@@ -254,6 +254,11 @@ def main():
     if live is not None:
         h, mnt = (EARLY_LIVE_END if day in EARLY_CLOSE else LIVE_END)[mode]
         live.run_until(now.replace(hour=h, minute=mnt, second=0, microsecond=0))
+        if mode == "am" and day not in EARLY_CLOSE:   # pm 잡이 30·60분 창을 바로 채울 수 있게 최근 스냅샷을 넘긴다
+            try:
+                live.save_handoff()
+            except Exception as e:
+                print(f"[live FAIL] 교대 스냅샷: {e}", file=sys.stderr, flush=True)
         if mode == "pm" or day in EARLY_CLOSE:   # 장 마감 후 그날 분 단위 기록을 보관
             try:
                 live.archive()

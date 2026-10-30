@@ -38,6 +38,8 @@ jobs:
       # 저장소 전체(수 GB)를 받지 않고 코드·대시보드·오늘 폴더만 받는다
       - uses: actions/checkout@v4
         with:
+          # 앞 잡이 끝나길 기다렸다 뜨는 잡(pm)도 지금 시점 main을 받는다. 기본값(github.sha)은 띄운 시점 커밋이라 그 사이 회차 스냅샷이 빠진다
+          ref: ${{ github.ref_name }}
           fetch-depth: 1
           filter: blob:none
           sparse-checkout-cone-mode: false
