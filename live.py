@@ -21,6 +21,7 @@ AFTER = -20                      # 다음 파일은 직전 파일 시각 + EVERY
 FLOW_WIN = timedelta(minutes=5)  # 유입 거래량 = 최근 5분 동안 늘어난 거래량 (만기별·행사가별 표)
 FLOW_WINS = {"1": 1, "30": 30, "60": 60}   # Top Flow 표의 비교 창(분). 화면에서 고른다
 KEEP = timedelta(minutes=61)     # 메모리에 남기는 분 단위 스냅샷 길이
+HANDOFF_GAP = timedelta(minutes=5)   # am 잡이 끝날 때 다음 잡(pm)에 넘기는 스냅샷 간격(30·60분 창이 잡 교대 직후에도 비지 않게)
 BRANCH = "live"
 SERIES_MAX = 1500
 FRAME_BAND = gex.FRAME_BAND                 # 분 단위 사다리(지난 시점 보기)에 남기는 행사가: 현재가 ±이 비율
@@ -60,6 +61,7 @@ class Live:
         self.due = {}                              # 종목별 다음에 받으러 갈 시각(UTC). CBOE 갱신 주기에 맞춘다
         self.miss = {}                             # 아직 안 바뀐 파일을 연달아 받은 횟수(뒤로 물러나기용)
         self.docs = {}
+        self.extra = {}                            # 다음 push에 같이 올릴 파일(잡 교대용 스냅샷)
         self.series = {s: [] for s in SYMS}
         self.frames = {s.lstrip("_"): {"date": None, "frames": []} for s in SYMS}
         self._restore()
@@ -83,6 +85,46 @@ class Live:
                 self.frames[name] = {"date": f.get("date"), "frames": f.get("frames", [])}
             except Exception:
                 pass
+            if s in self.syms:
+                self._restore_snaps(s, name)
+
+    def _restore_snaps(self, s, name):
+        """앞 잡이 끝나며 남긴 분 단위 스냅샷(<종목>_snaps.json)을 메모리로 이어받는다. 날짜가 다르면 tick에서 비워진다."""
+        try:
+            h = json.loads(git("show", f"{LIVE_REF}:{name}_snaps.json"))
+            day = datetime.strptime(h["day"], "%Y-%m-%d").date()
+            for q, vols in zip(h["q"], h["vol"]):
+                qt = datetime.fromisoformat(q)
+                df = pd.DataFrame({"option": h["option"], "volume": vols, "quote_et": qt.strftime(gex.FMT)})
+                self.snaps[s].append((qt, df, day))
+            print(f"[live] {name} 앞 잡 스냅샷 {len(h['q'])}개 이어받음 ({h['q'][0][11:16]}~{h['q'][-1][11:16]} ET)", flush=True)
+        except Exception:
+            pass
+
+    def save_handoff(self):
+        """잡이 끝나기 전에 최근 61분 스냅샷을 5분 간격으로 live 브랜치에 남긴다(다음 잡이 _restore에서 읽는다).
+        이 잡 종목 파일이라 다음 잡의 첫 push 때 자연히 지워진다."""
+        for s in self.syms:
+            snaps, name = self.snaps[s], s.lstrip("_")
+            if not snaps:
+                continue
+            keep, last = [], None
+            for q, d, day in reversed(snaps):
+                if last is None or last - q >= HANDOFF_GAP - timedelta(seconds=20):
+                    keep.append((q, d, day))
+                    last = q
+            keep.reverse()
+            day = keep[-1][2]
+            keep = [k for k in keep if k[2] == day]
+            cur = keep[-1][1]
+            opts = cur.loc[cur["volume"].fillna(0) > 0, "option"].drop_duplicates().tolist()   # 거래 없는 계약은 0으로 보면 된다
+            vol = [d.drop_duplicates("option").set_index("option")["volume"].reindex(opts).fillna(0).astype(int).tolist()
+                   for _, d, _ in keep]
+            self.extra[f"{name}_snaps.json"] = {"day": str(day), "option": opts,
+                                                "q": [q.isoformat() for q, _, _ in keep], "vol": vol}
+            print(f"[live] {name} 다음 잡에 넘길 스냅샷 {len(keep)}개 ({len(opts)}계약)", flush=True)
+        if self.extra:
+            self.push()
 
     def tick(self, syms=None):
         changed = False
@@ -195,19 +237,18 @@ class Live:
         return self.pvol[key]
 
     def _disk(self, name, day):
-        key = (name, str(day))
-        if key not in self.disk:
-            out = []
-            for f in gex.day_files("data", name, day):
-                try:
-                    d = gex.load(f)
-                    q = gex.quote_time(d)
-                    out.append((q, pd.DataFrame({"option": d["option"], "volume": d["volume"],
-                                                 "quote_et": q.strftime(gex.FMT)})))
-                except Exception:
-                    pass
-            self.disk[key] = sorted(out, key=lambda x: x[0])
-        return self.disk[key]
+        """그날 저장된 매시 스냅샷. 잡이 도는 동안 새로 저장된 회차도 들어오게 매번 폴더를 다시 본다(읽은 파일은 기억)."""
+        have = self.disk.setdefault((name, str(day)), {})
+        for f in gex.day_files("data", name, day):
+            if f in have:
+                continue
+            try:
+                d = gex.load(f)
+                q = gex.quote_time(d)
+                have[f] = (q, pd.DataFrame({"option": d["option"], "volume": d["volume"], "quote_et": q.strftime(gex.FMT)}))
+            except Exception:
+                pass                               # 쓰는 중인 파일일 수 있다 → 다음에 다시 읽는다
+        return sorted(have.values(), key=lambda x: x[0])
 
     def add_frame(self, name, day, qt, m):
         """그 분의 행사가별 순 GEX(현재가 근처)와 요약을 한 장으로 남긴다 → 화면에서 지난 시점을 고를 수 있다."""
@@ -276,6 +317,7 @@ class Live:
                 base = ""
                 files = {f"{n}.json": d for n, d in self.docs.items() if n in mine}
                 files.update({f"{n}_frames.json": self.frames_doc(n) for n, fr in self.frames.items() if fr["frames"] and n in mine})
+                files.update(self.extra)
                 try:   # 이 잡이 맡지 않은 종목 파일은 브랜치에 있는 최신본을 그대로 둔다
                     git("fetch", "-q", "--depth", "1", "origin", f"+{BRANCH}:{LIVE_REF}")
                     base = git("rev-parse", LIVE_REF)
