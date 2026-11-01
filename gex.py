@@ -143,6 +143,59 @@ def implied_spot(df, qt, day, sym):
     return float(f * np.exp(-(R - DIV.get(sym, 0.0)) * T)) if f else None
 
 
+def is_quarter_end(d):
+    """분기 마지막 거래일 만기인지(3·6·9·12월 마지막 거래일). JPM 칼라 같은 분기 롤 포지션이 몰린다."""
+    if d.month not in (3, 6, 9, 12):
+        return False
+    nxt = d + timedelta(days=1)
+    while nxt.month == d.month:
+        if is_trading_day(nxt):
+            return False
+        nxt += timedelta(days=1)
+    return True
+
+
+def oi_tables(out, df, live_k, spot, prev_day=None):
+    """미결제(OI) 상위 계약·행사가. OI는 OCC가 밤사이 한 번 갱신하는 전 거래일 마감 기준이라 장중에는 바뀌지 않는다.
+    prev_day(전 거래일 마지막 스냅샷)에 open_interest가 있으면 전일 대비 증감(doi)을 붙인다."""
+    oi = df["open_interest"].fillna(0)
+    doi = pd.Series(np.nan, index=df.index)
+    pdf = prev_day[1] if prev_day is not None else None
+    if pdf is not None and "open_interest" in pdf:
+        poi = df["option"].map(pdf.drop_duplicates("option").set_index("option")["open_interest"])
+        doi = oi - poi
+        if (doi.fillna(0) == 0).all():   # OCC가 아직 갱신 전(야간 초반 등)이면 증감이 전부 0 → 보여주지 않는다
+            doi[:] = np.nan
+    t = df.assign(_oi=oi, _doi=doi)[live_k & (oi > 0)]
+    g = (t.groupby(["expiry", "cp", "strike"])
+         .agg(oi=("_oi", "sum"), doi=("_doi", lambda s: s.sum(min_count=1)), vol=("volume", "sum"),
+              bucket=("bucket", "first"), iv=("iv", "mean"))
+         .reset_index())
+
+    def top(frame):
+        return [{"expiry": str(r.expiry), "bucket": r.bucket, "cp": r.cp, "strike": float(r.strike), "oi": int(r.oi),
+                 "doi": None if pd.isna(r.doi) else int(r.doi), "vol": int(r.vol or 0),
+                 "iv": round(float(r.iv) * 100, 1) if pd.notna(r.iv) else None,
+                 "qtr": is_quarter_end(r.expiry), "dist": round((float(r.strike) / spot - 1) * 100, 2)}
+                for r in frame.nlargest(10, "oi").itertuples()]
+
+    # all: 전부 / otm: 외가격만(콜은 현재가 위, 풋은 아래 — 박스·합성 포지션의 내가격 다리를 걸러 낸다)
+    # qtr: 가장 가까운 분기 마지막 거래일 만기(JPM 헤지 에쿼티 펀드 칼라가 이 만기에 롤한다)
+    otm = ((g["cp"] == "C") & (g["strike"] > spot)) | ((g["cp"] == "P") & (g["strike"] < spot))
+    out["top_oi"] = top(g)
+    out["top_oi_otm"] = top(g[otm])
+    qexp = sorted(e for e in g["expiry"].unique() if is_quarter_end(e))
+    if qexp:
+        out["top_oi_qtr"] = {"expiry": str(qexp[0]), "rows": top(g[g["expiry"] == qexp[0]])}
+    s = t.groupby(["strike", "cp"])["_oi"].sum().unstack(fill_value=0)
+    for c in ("C", "P"):
+        if c not in s:
+            s[c] = 0
+    s["tot"] = s["C"] + s["P"]
+    out["oi_strikes"] = [{"strike": float(k), "call": int(r.C), "put": int(r.P), "tot": int(r.tot),
+                          "dist": round((float(k) / spot - 1) * 100, 2)} for k, r in s.nlargest(10, "tot").iterrows()]
+
+
 def metrics(df, day, prev, sym, tag, prevs=None, prev_day=None):
     """prev: 직전 스냅샷(option·volume·quote_et 열만 있어도 됨). 있으면 그 사이 늘어난 거래량(flow)을 계산.
     prevs: {창 이름: 그만큼 전 스냅샷 또는 None} → 창마다 유입 상위(flows)를 따로 만든다(실시간용).
@@ -254,6 +307,7 @@ def metrics(df, day, prev, sym, tag, prevs=None, prev_day=None):
     st = st.nlargest(10, key if key == "vh" else "vol")
     out["top_strikes"] = [{"strike": float(r.strike), "cp": r.cp, "vol": int(r.vol),
                            "vh": None if prev is None else int(r.vh), "oi": int(r.oi)} for r in st.itertuples()]
+    oi_tables(out, df, live_k, spot, prev_day)
 
     if sym in NO_GEX:
         out["gex"] = False
