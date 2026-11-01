@@ -228,7 +228,7 @@ class Live:
                     f = max(fs, key=lambda p: gex.tag_key(gex.tag_of(p)))
                     raw = subprocess.run(["git", "show", f"HEAD:{f}"], capture_output=True, check=True).stdout
                     pdf = pd.read_csv(io.BytesIO(raw), compression="gzip" if f.endswith(".gz") else None,
-                                      usecols=["option", "volume"])
+                                      usecols=lambda c: c in ("option", "volume", "open_interest"))
                     self.pvol[key] = (d, pdf)
                     print(f"[live] {name} 전일 거래량 기준: {f}", flush=True)
                     break
