@@ -93,8 +93,6 @@ th:first-child,td:first-child{text-align:left}
 .b.weekly{background:var(--panel);color:var(--sub)}
 .b.dte{background:var(--pinkbg);color:var(--pink)}
 .b.q{background:var(--orange);color:#fff}
-.b.back{background:var(--tint);color:var(--navy);opacity:.8}
-.b.leaps{background:transparent;color:var(--sub);border:1px solid var(--line)}
 .c{color:var(--red);font-weight:700}.p{color:var(--blue);font-weight:700}
 .pos{color:var(--red)}.neg{color:var(--blue)}
 .note{background:var(--panel);border-left:6px solid var(--blue);border-radius:0 16px 16px 0;padding:16px 20px;
@@ -317,7 +315,7 @@ const BAR_INFO = {
   bucket: {title:"Expiry Filter (All · Monthly · 0DTE)", lines:[
     "<b style='display:inline;font-size:14px'>All</b> (기본값): 오늘 만기를 뺀 모든 만기(위클리·월물·월말물·분기·장기물)를 합산한다. 전일 미결제약정이 다 잡히는 포지션 전체다. SPX 감마는 위클리 쪽에 많이 쌓여 있어 이걸 기본으로 본다",
     "<b style='display:inline;font-size:14px'>Monthly</b>: 월물 만기(매달 셋째 금요일) 옵션만 본다. SPX는 오전 정산 월물(SPX 루트) 기준. 가까운 월물뿐 아니라 1년 넘는 장기 월물(LEAPS)까지 모두 합친다(장기물은 감마가 작아 영향이 작다)",
-    "표의 만기 배지: <b style='display:inline'>Front</b> 가장 가까운 월물 · <b style='display:inline'>Back</b> 1년 안의 다음 월물들 · <b style='display:inline'>LEAPS</b> 1년 넘게 남은 월물 · 연도가 다르면 날짜에 연도(YY-MM-DD)를 붙인다",
+    "표의 만기 배지는 Monthly(월물 만기)와 0DTE 둘만 붙인다. 위클리 등은 날짜만 · 연도가 다르면 날짜에 연도(YY-MM-DD)를 붙인다",
     "<b style='display:inline;font-size:14px'>0DTE</b>: 그날 만기되는 옵션만 본다. 오늘 새로 연 포지션은 미결제약정에 안 잡혀 전일 OI만 반영된 참고용이다. 당일 만기가 없는 날은 비어 있다",
     "바꾸면 KPI(Net GEX·Gamma Flip·Call/Put Wall), GEX by Strike, Gamma Profile, SpotGammaFlow 오른쪽 막대가 함께 바뀐다. 거래량 표는 만기 필터와 무관하다"]},
   ival: {title:"Candle Interval", lines:[
@@ -718,21 +716,11 @@ function historyChart(){
 }
 
 const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
-// 만기 표시: 연도가 다르면 YY-MM-DD. 월물(셋째 금요일)은 Front(가장 가까운 월물)·Back(1년 이내 나머지)·LEAPS(1년 넘음)로 나눈다
-const thirdFri = (y, m) => { const w = new Date(Date.UTC(y, m, 1)).getUTCDay(); return new Date(Date.UTC(y, m, 1 + (5 - w + 7) % 7 + 14)).toISOString().slice(0, 10); };
-function frontMonth(day){
-  const [y, m] = day.split("-").map(Number);
-  const t = thirdFri(y, m - 1);
-  return (t >= day ? t : thirdFri(m === 12 ? y + 1 : y, m % 12)).slice(0, 7);
-}
+// 만기 표시: 배지는 Monthly(셋째 금요일 월물 만기 — 3월물·12월물 같은 분기 월물 포함)와 0DTE 둘만 붙인다.
+// 위클리 등 나머지는 배지 없이 날짜만. 연도가 다르면 YY-MM-DD
 function expTxt(r, day){
-  if (!day) return r.expiry.slice(5) + badge(r.bucket);
-  const d = r.expiry.slice(0, 4) === day.slice(0, 4) ? r.expiry.slice(5) : r.expiry.slice(2);
-  if (r.bucket !== "monthly") return d + badge(r.bucket);
-  const days = (Date.parse(r.expiry) - Date.parse(day)) / 864e5;
-  const [cls, txt, tip] = r.expiry.slice(0, 7) === frontMonth(day) ? ["monthly", "Front", "가장 가까운 월물 만기"]
-    : days > 365 ? ["leaps", "LEAPS", "1년 넘게 남은 장기 월물"] : ["back", "Back", "1년 안의 다음 월물들(근월물 제외)"];
-  return `${d}<span class="b ${cls}" title="${tip}">${txt}</span>`;
+  const d = !day || r.expiry.slice(0, 4) === day.slice(0, 4) ? r.expiry.slice(5) : r.expiry.slice(2);
+  return d + (r.bucket === "monthly" || r.bucket === "0dte" ? badge(r.bucket) : "");
 }
 const cp = c => c==="C" ? `<span class="c">Call</span>` : `<span class="p">Put</span>`;
 const ratio = r => r.oi ? (r.vol/r.oi).toFixed(1)+"x" : "New";
@@ -795,9 +783,8 @@ function oiTables(s){
   const qe = s.top_oi_qtr?.expiry;
   setTitle($("#oiTitle"), st.oiView === "qtr" && qe ? `Top OI (${qe.slice(5)} quarter-end)` : st.oiView === "otm" ? "Top OI (OTM)" : "Top OI");
   $("#oiDesc").textContent = OI_DESC[st.oiView] + " · ΔOI는 전일 대비(OCC 갱신 전이면 –)";
-  const qb = r => r.qtr ? `<span class="b q" title="분기 마지막 거래일 만기">Q</span>` : "";
   $("#tOi").innerHTML = R.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>vs Spot</th><th>OI</th><th>ΔOI</th><th>Volume</th><th>IV</th></tr>` +
-    R.map(r => `<tr><td>${expTxt(r, s.date)}${qb(r)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td>${oiPct(r.dist)}</td>
+    R.map(r => `<tr><td>${expTxt(r, s.date)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td>${oiPct(r.dist)}</td>
       <td><b>${n0(r.oi)}</b></td><td>${oiChg(r.doi)}</td><td>${n0(r.vol)}</td><td>${r.iv ? r.iv+"%" : "–"}</td></tr>`).join("")
     : `<tr><td class="empty">No OI data in this snapshot.</td></tr>`;
   const S = s.oi_strikes || [];
