@@ -93,6 +93,8 @@ th:first-child,td:first-child{text-align:left}
 .b.weekly{background:var(--panel);color:var(--sub)}
 .b.dte{background:var(--pinkbg);color:var(--pink)}
 .b.q{background:var(--orange);color:#fff}
+.b.back{background:var(--tint);color:var(--navy);opacity:.8}
+.b.leaps{background:transparent;color:var(--sub);border:1px solid var(--line)}
 .c{color:var(--red);font-weight:700}.p{color:var(--blue);font-weight:700}
 .pos{color:var(--red)}.neg{color:var(--blue)}
 .note{background:var(--panel);border-left:6px solid var(--blue);border-radius:0 16px 16px 0;padding:16px 20px;
@@ -314,7 +316,8 @@ const BAR_INFO = {
     "ET는 미국 동부시간이다. 한국시간은 서머타임 기간 +13시간, 표준시(11/1부터) +14시간"]},
   bucket: {title:"Expiry Filter (All · Monthly · 0DTE)", lines:[
     "<b style='display:inline;font-size:14px'>All</b> (기본값): 오늘 만기를 뺀 모든 만기(위클리·월물·월말물·분기·장기물)를 합산한다. 전일 미결제약정이 다 잡히는 포지션 전체다. SPX 감마는 위클리 쪽에 많이 쌓여 있어 이걸 기본으로 본다",
-    "<b style='display:inline;font-size:14px'>Monthly</b>: 월물 만기(매달 셋째 금요일) 옵션만 본다. SPX는 오전 정산 월물(SPX 루트) 기준",
+    "<b style='display:inline;font-size:14px'>Monthly</b>: 월물 만기(매달 셋째 금요일) 옵션만 본다. SPX는 오전 정산 월물(SPX 루트) 기준. 가까운 월물뿐 아니라 1년 넘는 장기 월물(LEAPS)까지 모두 합친다(장기물은 감마가 작아 영향이 작다)",
+    "표의 만기 배지: <b style='display:inline'>Front</b> 가장 가까운 월물 · <b style='display:inline'>Back</b> 1년 안의 다음 월물들 · <b style='display:inline'>LEAPS</b> 1년 넘게 남은 월물 · 연도가 다르면 날짜에 연도(YY-MM-DD)를 붙인다",
     "<b style='display:inline;font-size:14px'>0DTE</b>: 그날 만기되는 옵션만 본다. 오늘 새로 연 포지션은 미결제약정에 안 잡혀 전일 OI만 반영된 참고용이다. 당일 만기가 없는 날은 비어 있다",
     "바꾸면 KPI(Net GEX·Gamma Flip·Call/Put Wall), GEX by Strike, Gamma Profile, SpotGammaFlow 오른쪽 막대가 함께 바뀐다. 거래량 표는 만기 필터와 무관하다"]},
   ival: {title:"Candle Interval", lines:[
@@ -715,6 +718,22 @@ function historyChart(){
 }
 
 const badge = b => `<span class="b ${b==="0dte"?"dte":b}">${BUCKET_KO[b]||b}</span>`;
+// 만기 표시: 연도가 다르면 YY-MM-DD. 월물(셋째 금요일)은 Front(가장 가까운 월물)·Back(1년 이내 나머지)·LEAPS(1년 넘음)로 나눈다
+const thirdFri = (y, m) => { const w = new Date(Date.UTC(y, m, 1)).getUTCDay(); return new Date(Date.UTC(y, m, 1 + (5 - w + 7) % 7 + 14)).toISOString().slice(0, 10); };
+function frontMonth(day){
+  const [y, m] = day.split("-").map(Number);
+  const t = thirdFri(y, m - 1);
+  return (t >= day ? t : thirdFri(m === 12 ? y + 1 : y, m % 12)).slice(0, 7);
+}
+function expTxt(r, day){
+  if (!day) return r.expiry.slice(5) + badge(r.bucket);
+  const d = r.expiry.slice(0, 4) === day.slice(0, 4) ? r.expiry.slice(5) : r.expiry.slice(2);
+  if (r.bucket !== "monthly") return d + badge(r.bucket);
+  const days = (Date.parse(r.expiry) - Date.parse(day)) / 864e5;
+  const [cls, txt, tip] = r.expiry.slice(0, 7) === frontMonth(day) ? ["monthly", "Front", "가장 가까운 월물 만기"]
+    : days > 365 ? ["leaps", "LEAPS", "1년 넘게 남은 장기 월물"] : ["back", "Back", "1년 안의 다음 월물들(근월물 제외)"];
+  return `${d}<span class="b ${cls}" title="${tip}">${txt}</span>`;
+}
 const cp = c => c==="C" ? `<span class="c">Call</span>` : `<span class="p">Put</span>`;
 const ratio = r => r.oi ? (r.vol/r.oi).toFixed(1)+"x" : "New";
 
@@ -749,17 +768,17 @@ function tables(s, isLive){
   $("#flowDesc").textContent = fdesc;
   const V = s.top_volume || s.top_contracts || [];
   $("#tVol").innerHTML = V.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>Volume</th><th>OI</th><th>Vol/OI</th><th>IV</th><th>Last</th></tr>` +
-    V.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vol)}</b></td>
+    V.map(r => `<tr><td>${expTxt(r, s.date)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vol)}</b></td>
       <td>${n0(r.oi)}</td><td>${ratio(r)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
     : `<tr><td class="empty">No trades.</td></tr>`;
   const hasPv = F.some(r => r.pv != null);   // 전일 대비 창: 전일 거래량 열을 더한다
   $("#tFlow").innerHTML = F.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>Flow</th><th>Volume</th>${hasPv ? "<th>Prev</th>" : ""}<th>OI</th><th>IV</th><th>Last</th></tr>` +
-    F.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vh)}</b></td>
+    F.map(r => `<tr><td>${expTxt(r, s.date)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td><b>${n0(r.vh)}</b></td>
       <td>${n0(r.vol)}</td>${hasPv ? `<td>${n0(r.pv)}</td>` : ""}<td>${n0(r.oi)}</td><td>${r.iv ? r.iv+"%" : "–"}</td><td>${r.last ?? "–"}</td></tr>`).join("")
     : `<tr><td class="empty">No flow (regular session only).</td></tr>`;
   oiTables(s);
   $("#tExp").innerHTML = `<tr><th>Expiry</th>${flow?"<th>Flow</th>":""}<th>Volume</th><th>Call %</th><th>OI</th></tr>` +
-    (s.top_expiries||[]).map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>
+    (s.top_expiries||[]).map(r => `<tr><td>${expTxt(r, s.date)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td>
       <td>${r.call_share==null?"–":Math.round(r.call_share*100)+"%"}</td><td>${n0(r.oi)}</td></tr>`).join("");
   $("#tStrike").innerHTML = `<tr><th>Strike</th><th>Type</th>${flow?"<th>Flow</th>":""}<th>Volume</th><th>OI</th></tr>` +
     (s.top_strikes||[]).map(r => `<tr><td>${r.strike}</td><td>${cp(r.cp)}</td>${flow?`<td><b>${n0(r.vh)}</b></td>`:""}<td>${n0(r.vol)}</td><td>${n0(r.oi)}</td></tr>`).join("");
@@ -778,7 +797,7 @@ function oiTables(s){
   $("#oiDesc").textContent = OI_DESC[st.oiView] + " · ΔOI는 전일 대비(OCC 갱신 전이면 –)";
   const qb = r => r.qtr ? `<span class="b q" title="분기 마지막 거래일 만기">Q</span>` : "";
   $("#tOi").innerHTML = R.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>vs Spot</th><th>OI</th><th>ΔOI</th><th>Volume</th><th>IV</th></tr>` +
-    R.map(r => `<tr><td>${r.expiry.slice(5)}${badge(r.bucket)}${qb(r)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td>${oiPct(r.dist)}</td>
+    R.map(r => `<tr><td>${expTxt(r, s.date)}${qb(r)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td>${oiPct(r.dist)}</td>
       <td><b>${n0(r.oi)}</b></td><td>${oiChg(r.doi)}</td><td>${n0(r.vol)}</td><td>${r.iv ? r.iv+"%" : "–"}</td></tr>`).join("")
     : `<tr><td class="empty">No OI data in this snapshot.</td></tr>`;
   const S = s.oi_strikes || [];
