@@ -775,14 +775,18 @@ function tables(s, isLive){
 const oiPct = v => v==null ? "–" : (v>0?"+":"") + v.toFixed(2) + "%";
 const oiChg = v => v==null ? "–" : `<span class="${v>0?"c":v<0?"p":""}">${v>0?"+":""}${n0(v)}</span>`;
 
-function oiTables(s){
-  // 미결제 상위: OI는 전 거래일 마감 기준(OCC 밤사이 갱신)이라 장중엔 안 바뀐다. 예전 스냅샷에는 없을 수 있다
+function oiTables(cur){
+  // 미결제 상위: OI는 전 거래일 마감 기준(OCC 밤사이 갱신)이라 장중엔 안 바뀐다.
+  // 지금 시점에 OI 표가 없으면(예전 코드로 만든 스냅샷 등) 가장 최근에 있던 것을 대신 보여주고 제목에 그 날짜를 적는다
+  const cands = [cur, st.live?.live, ...((st.hourly?.slots || []).slice().reverse())];
+  const s = cands.find(x => x && (x.top_oi || x.top_oi_otm)) || cur;
+  const old = s !== cur && s.top_oi ? ` · ${(s.quote_date_et || s.date || "").slice(5)} ${s.quote_et || ""} 기준` : "";
   const views = {otm: s.top_oi_otm, all: s.top_oi, qtr: s.top_oi_qtr?.rows};
   document.querySelectorAll("#oiViews button").forEach(b => { b.disabled = !views[b.dataset.v]; b.classList.toggle("on", b.dataset.v === st.oiView); });
   const R = views[st.oiView] || [];
   const qe = s.top_oi_qtr?.expiry;
   setTitle($("#oiTitle"), st.oiView === "qtr" && qe ? `Top OI (${qe.slice(5)} quarter-end)` : st.oiView === "otm" ? "Top OI (OTM)" : "Top OI");
-  $("#oiDesc").textContent = OI_DESC[st.oiView] + " · ΔOI는 전일 대비(OCC 갱신 전이면 –)";
+  $("#oiDesc").textContent = OI_DESC[st.oiView] + " · ΔOI는 전일 대비(OCC 갱신 전이면 –)" + (old ? ` · 지금 시세에는 OI 표가 없어 최근 기록을 보여준다${old}` : "");
   $("#tOi").innerHTML = R.length ? `<tr><th>Expiry</th><th>Type</th><th>Strike</th><th>vs Spot</th><th>OI</th><th>ΔOI</th><th>Volume</th><th>IV</th></tr>` +
     R.map(r => `<tr><td>${expTxt(r, s.date)}</td><td>${cp(r.cp)}</td><td>${r.strike}</td><td>${oiPct(r.dist)}</td>
       <td><b>${n0(r.oi)}</b></td><td>${oiChg(r.doi)}</td><td>${n0(r.vol)}</td><td>${r.iv ? r.iv+"%" : "–"}</td></tr>`).join("")
