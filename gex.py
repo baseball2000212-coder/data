@@ -439,8 +439,13 @@ def write_archive(sym, day, slots, out_dir="docs/archive"):
         json.dump(idx, fh, ensure_ascii=False, separators=(",", ":"))
 
 
+def is_snap(path):
+    """매시 스냅샷 파일인지. 같은 폴더의 체결 흐름 파일(<종목>_<날짜>_flow.csv.gz, live.py)은 뺀다."""
+    return not os.path.basename(path).split(".")[0].endswith("_flow")
+
+
 def day_files(data_dir, sym, day):
-    fs = glob.glob(f"{data_dir}/{sym}/{day}/{sym}_{day}_*.csv*")
+    fs = [f for f in glob.glob(f"{data_dir}/{sym}/{day}/{sym}_{day}_*.csv*") if is_snap(f)]
     return sorted(fs, key=lambda p: tag_key(tag_of(p)))
 
 

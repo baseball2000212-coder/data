@@ -128,6 +128,17 @@ def collect(tag, day, out_dir=OUT_DIR, check_fresh=True):
     return fails
 
 
+FLUSH = []   # 실시간 잡이면 Live.flow_flush: 커밋 직전에 TSLA 체결 흐름(틱별 거래량 증가분) 파일을 쓴다
+
+
+def flow_flush():
+    for f in FLUSH:
+        try:
+            f()
+        except Exception as e:
+            print(f"[flow FAIL] {e}", file=sys.stderr, flush=True)
+
+
 def publish(tag, day):
     """회차마다 대시보드 갱신 + 커밋·푸시. 실패해도 수집은 계속한다."""
     if os.environ.get("PUSH_EACH") != "1":
@@ -137,6 +148,7 @@ def publish(tag, day):
         gex.build_day(day)
     except Exception as e:
         print(f"[gex FAIL] {e}", file=sys.stderr, flush=True)
+    flow_flush()
     subprocess.run(["bash", "commit.sh", f"collect {tag} {day}"], check=False)
 
 
@@ -239,6 +251,7 @@ def main():
     if os.environ.get("LIVE") == "1":
         from live import Live
         live = Live(fetch)
+        FLUSH.append(live.flow_flush)
     total_fails = 0
     for h, mnt in (EARLY_SLOTS if day in EARLY_CLOSE else SLOTS)[mode]:
         tag = f"{h:02d}{mnt:02d}"
@@ -271,6 +284,7 @@ def main():
         total_fails += res.get("fails", 0)
     if live is not None:
         live.run_until(now.replace(hour=h, minute=mnt, second=0, microsecond=0))
+        flow_flush()                                   # 마지막 회차 뒤 행들(am은 워크플로 마지막 커밋 단계가 올린다)
         if mode == "am" and day not in EARLY_CLOSE:   # pm 잡이 30·60분 창을 바로 채울 수 있게 최근 스냅샷을 넘긴다
             try:
                 live.save_handoff()
@@ -284,6 +298,11 @@ def main():
                     backfill_bars.fill("TSLA")
                 except Exception as e:
                     print(f"[bars FAIL] {e}", file=sys.stderr, flush=True)
+                try:   # TSLA 체결 흐름 → 사건·수익률 요약(docs/flow)
+                    import flow_study
+                    flow_study.run(str(day))
+                except Exception as e:
+                    print(f"[flow_study FAIL] {e}", file=sys.stderr, flush=True)
                 subprocess.run(["bash", "commit.sh", f"archive {day}"], check=False)
             except Exception as e:
                 print(f"[archive FAIL] {e}", file=sys.stderr, flush=True)

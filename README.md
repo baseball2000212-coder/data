@@ -39,7 +39,15 @@ SPX·TSLA 월물 기준 딜러 감마 노출(GEX) 대시보드를 **1분 간격*
 data/<종목>/<YYYY-MM-DD>/<종목>_<날짜>_<HHMM>.csv.gz   # 2026-10-29부터 gzip (pandas.read_csv가 그대로 읽음)
 docs/gex/<종목>.json          # 대시보드용: 그날 회차별 GEX·감마 프로파일·거래량 상위 + 최근 90일 추이
 docs/gex/history/<종목>.csv   # 회차별 GEX 요약 전체 기록
+data/TSLA/<날짜>/TSLA_<날짜>_flow.csv.gz   # TSLA 체결 흐름: 틱(CBOE 파일, 45~50초)마다 직전 틱 대비 거래량이 늘어난 계약 한 행
+docs/flow/TSLA/<날짜>.json    # flow_study.py 결과(큰 체결·1/5/15분 뒤 수익률·분 단위 순 델타 흐름). 화면: docs/flow.html
 ```
+
+**체결 흐름(flow)** — am·pm 실시간 잡(live.py)이 정규장(09:30~16:00 ET) 동안 TSLA 체인을 받을 때마다 직전 틱과 누적 거래량을 비교해
+`quote_et, option, expiry, cp, strike, dte, dvol, last_trade_price, last_trade_time, bid, ask, mid, side, delta, gamma, iv, spot, gap_s`를 남긴다.
+`side` = B(체결가 ≥ 매도호가 − 0.005) · S(≤ 매수호가 + 0.005) · M(사이) · ?(체결 시각이 직전 틱보다 새롭지 않거나 호가 없음).
+잡의 첫 틱은 기준만 잡는다(잡 교대 사이 거래량이 한 틱에 몰리지 않게). `gap_s` > 180이면 수집이 끊겼던 구간이다.
+회차 커밋 직전에 원격 최신본과 합쳐 쓰므로 pm 잡이 am 기록을 지우지 않는다. 장 마감 후 pm 잡이 `flow_study.py`를 돌린다(수동: `python flow_study.py [YYYY-MM-DD]`).
 
 gzip은 내려받기·체크아웃 용량을 1/4로 줄인다. git이 원래 압축해서 저장하므로 저장소 용량 증가는 비슷하다.
 
