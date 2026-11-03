@@ -4,14 +4,15 @@
 대시보드는 raw.githubusercontent.com 에서 바로 읽는다(GitHub Pages 빌드 제한과 무관).
   live/<종목>.json = {"live": 최신 GEX·거래량, "series": 그날 분 단위 추이}
 """
-import io, os, sys, json, time, subprocess
+import io, os, sys, gzip, json, time, threading, subprocess
 import requests
+import numpy as np
 import pandas as pd
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time as dtime
 from zoneinfo import ZoneInfo
 import gex
-from us_calendar import session_of, prev_trading_day
+from us_calendar import session_of, prev_trading_day, EARLY_CLOSE
 
 ET = ZoneInfo("America/New_York")
 KST = ZoneInfo("Asia/Seoul")
@@ -28,6 +29,63 @@ FRAME_BAND = gex.FRAME_BAND                 # 분 단위 사다리(지난 시점
 GTH_FRAME_GAP = timedelta(minutes=5)        # 야간에는 5분마다 한 장만 남긴다
 ARCHIVE = "docs/archive"
 LIVE_REF = "refs/remotes/origin/live"   # FETCH_HEAD는 회차 커밋(commit.sh의 pull)과 겹치면 덮어써져서 전용 참조를 쓴다
+
+# 체결 흐름(flow): 틱(CBOE 파일, 45~50초 간격)마다 직전 틱 대비 계약별 누적 거래량 증가분을 남긴다.
+#   data/<종목>/<ET 날짜>/<종목>_<날짜>_flow.csv.gz  (회차 커밋 때 같이 올라간다. 매시 스냅샷 목록(gex.day_files)에서는 빠진다)
+FLOW_SYMS = {"TSLA"}
+FLOW_COLS = ["quote_et", "option", "expiry", "cp", "strike", "dte", "dvol", "last_trade_price", "last_trade_time",
+             "bid", "ask", "mid", "side", "delta", "gamma", "iv", "spot", "gap_s"]
+FLOW_SRC = ["option", "expiry", "cp", "strike", "bid", "ask", "iv", "volume", "delta", "gamma",
+            "last_trade_price", "last_trade_time", "spot"]
+FLOW_EPS = 0.005                 # 체결가가 매도호가 − 이 값 이상이면 B(매수 체결), 매수호가 + 이 값 이하면 S
+FLOW_MAX_GAP = 180               # 초. 직전 틱과 이보다 멀면 행은 남기되 gap_s로 표시(flow_study가 사건·통계에서 뺀다)
+FLOW_OPEN = dtime(9, 30)
+FLOW_SYNC_REF = "refs/remotes/origin/flowsync"   # 커밋 직전에 원격 최신본과 합칠 때 쓰는 전용 참조
+
+
+def flow_path(name, day, data_dir="data"):
+    return f"{data_dir}/{name}/{day}/{name}_{day}_flow.csv.gz"
+
+
+def flow_diff(prev, cur, qt, gap_s):
+    """직전 틱(prev)과 이번 틱(cur) 체인의 누적 거래량 차이 → 거래가 생긴 계약마다 한 행.
+    side: 체결가가 매도호가 근처면 B, 매수호가 근처면 S, 사이면 M. 체결 시각이 직전 틱보다 새롭지 않거나 호가가 없으면 ?.
+    호가는 이번 틱 시점 값이라(체결은 그 앞 45초 안) 근사다. 직전 틱에 없던 계약은 건너뛴다(가짜 급증 방지)."""
+    if prev is None or cur is None or prev.empty or cur.empty:
+        return pd.DataFrame(columns=FLOW_COLS)
+    p = prev.reindex(columns=["option", "volume", "last_trade_time"]).drop_duplicates("option")
+    p = p.rename(columns={"volume": "pvol", "last_trade_time": "pltt"})
+    c = cur.drop_duplicates("option").merge(p, on="option", how="inner")
+    dv = (pd.to_numeric(c["volume"], errors="coerce") - pd.to_numeric(c["pvol"], errors="coerce")).round()
+    c = c[dv > 0].copy()
+    if c.empty:
+        return pd.DataFrame(columns=FLOW_COLS)
+    c["dvol"] = dv[dv > 0].astype("int64").values
+    num = lambda k: pd.to_numeric(c[k], errors="coerce") if k in c else pd.Series(np.nan, index=c.index)
+    last, bid, ask = num("last_trade_price"), num("bid"), num("ask")
+    ltt = c["last_trade_time"].fillna("").astype(str) if "last_trade_time" in c else pd.Series("", index=c.index)
+    pltt = c["pltt"].fillna("").astype(str)
+    newer = (ltt != "") & (ltt > pltt)
+    q_ok = bid.notna() & ask.notna() & (ask > 0) & (ask >= bid) & last.notna() & (last > 0)
+    c["side"] = np.select([~(newer & q_ok), last >= ask - FLOW_EPS, last <= bid + FLOW_EPS], ["?", "B", "S"], default="M")
+    c["mid"] = ((bid + ask) / 2).where(q_ok).round(3)
+    exp = pd.to_datetime(c["expiry"].astype(str), errors="coerce")
+    c["dte"] = (exp - pd.Timestamp(qt.date())).dt.days.fillna(-1).astype("int64").values
+    c["expiry"] = exp.dt.strftime("%Y-%m-%d").fillna("").values
+    c["last_trade_time"] = ltt.values
+    c["quote_et"] = qt.strftime(gex.FMT)
+    c["gap_s"] = int(round(gap_s))
+    for k, nd in (("last_trade_price", 2), ("bid", 2), ("ask", 2), ("delta", 4), ("gamma", 5), ("iv", 4), ("spot", 4), ("strike", 3)):
+        c[k] = num(k).round(nd)
+    return c.reindex(columns=FLOW_COLS).sort_values("option").reset_index(drop=True)
+
+
+def read_flow(src):
+    """flow 파일(경로 또는 gzip 바이트) → DataFrame."""
+    if isinstance(src, (bytes, bytearray)):
+        src = io.BytesIO(src)
+    return pd.read_csv(src, compression="gzip", dtype={"quote_et": str, "option": str, "expiry": str, "cp": str,
+                                                     "side": str, "last_trade_time": str})
 
 
 def chart_bars(sym):
@@ -64,6 +122,10 @@ class Live:
         self.extra = {}                            # 다음 push에 같이 올릴 파일(잡 교대용 스냅샷)
         self.series = {s: [] for s in SYMS}
         self.frames = {s.lstrip("_"): {"date": None, "frames": []} for s in SYMS}
+        self.flow_prev = {}                        # 종목 → (시세 시각, 직전 틱 체인). 잡의 첫 틱은 기준만 잡고 행을 남기지 않는다
+        self.flow_new = {}                         # (종목, 날짜) → 아직 파일에 안 쓴 행들. flow_flush가 커밋 직전에 쓴다
+        self.flow_bad = {}                         # 종목 → 거래량 합이 줄어든 틱이 연달아 나온 횟수
+        self.flow_lock = threading.Lock()          # 회차 저장 스레드(publish)가 flow_flush를 부른다
         self._restore()
 
     def _restore(self):
@@ -151,6 +213,7 @@ class Live:
                 prev = self.before(s, name, day, qt, FLOW_WIN)
                 prevs = {k: self.before(s, name, day, qt, timedelta(minutes=w)) for k, w in FLOW_WINS.items()}
                 snaps.append((qt, df[["option", "volume", "quote_et"]].copy(), day))
+                self._flow(s, name, df, qt, day)
                 m = gex.metrics(df, day, prev, name, "live", prevs=prevs, prev_day=self.prev_volume(name, day))
                 last = (self.docs.get(name) or {}).get("live") or {}
                 if m.get("gex") is False and last.get("gex") and last.get("date") == str(day) and name not in gex.NO_GEX:
@@ -189,6 +252,96 @@ class Live:
         if changed:
             self.push()
 
+    def _flow(self, s, name, df, qt, day):
+        """직전 틱 대비 계약별 거래량 증가분을 모아 둔다(정규장만). 실패해도 실시간 GEX는 계속 돈다."""
+        if name not in FLOW_SYMS:
+            return
+        try:
+            cur = df[[k for k in FLOW_SRC if k in df]].copy()
+            prev = self.flow_prev.get(s)
+            self.flow_prev[s] = (qt, cur)
+            if prev is None:
+                print(f"[flow] {name} 기준 틱 {qt:%H:%M:%S} ET (다음 틱부터 기록)", flush=True)
+                return
+            pq, pdf = prev
+            tp, tc = (pd.to_numeric(x["volume"], errors="coerce").sum() for x in (pdf, cur))
+            if pq.date() == qt.date() and tp > 0 and tc < tp * 0.95:
+                # 누적 거래량 합이 줄었다 = CBOE가 깨진(일부만 있거나 거래량이 빈) 파일을 줬다. 기준은 직전 틱으로 둔다.
+                # 세 번 연달아 그러면 체인이 실제로 바뀐 것으로 보고 이번 틱을 새 기준으로 삼는다(행은 남기지 않음)
+                k = self.flow_bad[s] = self.flow_bad.get(s, 0) + 1
+                if k < 3:
+                    self.flow_prev[s] = prev
+                print(f"[flow] {name} {qt:%H:%M:%S} 거래량 합이 줄어 이 틱 건너뜀 ({tp:.0f} → {tc:.0f}, {k}회)", flush=True)
+                return
+            self.flow_bad[s] = 0
+            gap = (qt - pq).total_seconds()
+            close = dtime(13, 0) if day in EARLY_CLOSE else dtime(16, 0)
+            end = (datetime.combine(qt.date(), close) + timedelta(minutes=2)).time()
+            if pq.date() != qt.date() or gap <= 0 or not (FLOW_OPEN <= qt.time() <= end):
+                return
+            rows = flow_diff(pdf, cur, qt, gap)
+            if gap > FLOW_MAX_GAP:
+                print(f"[flow] {name} {qt:%H:%M:%S} 직전 틱과 {gap:.0f}초 차이 → gap_s로 표시({len(rows)}행)", flush=True)
+            if rows.empty:
+                return
+            with self.flow_lock:
+                self.flow_new.setdefault((name, str(day)), []).append(rows)
+        except Exception as e:
+            print(f"[flow FAIL] {name} {qt:%H:%M:%S}: {e}", file=sys.stderr, flush=True)
+
+    def flow_flush(self):
+        """모아 둔 flow 행을 파일에 쓴다(회차 커밋 직전·잡 끝에 부른다). 실패하면 행을 되돌려 놓고 다음에 다시 쓴다."""
+        with self.flow_lock:
+            pend, self.flow_new = self.flow_new, {}
+        for key, parts in pend.items():
+            try:
+                self._flow_write(*key, parts)
+            except Exception as e:
+                print(f"[flow FAIL] 저장 {key}: {e}", file=sys.stderr, flush=True)
+                with self.flow_lock:
+                    self.flow_new.setdefault(key, []).extend(parts)
+
+    def _flow_write(self, name, day, parts, remote=True):
+        """이미 있는 파일(이 체크아웃 + 원격 최신본)에 새 행을 합쳐 다시 쓴다.
+        pm 잡은 am 잡보다 먼저 체크아웃해서 기다리므로 원격 최신본(am이 마지막에 올린 것)과 합쳐야 덮어써서 지우지 않는다.
+        commit.sh가 부분 체크아웃 폴더를 add 하므로 다 쓴 파일을 한 번에 바꿔치기(os.replace)한다."""
+        path = flow_path(name, day)
+        new = pd.concat(parts, ignore_index=True)
+        frames = [new]
+        if os.path.exists(path):
+            try:
+                frames.append(read_flow(path))
+            except Exception as e:
+                print(f"[flow FAIL] {path} 읽기: {e}", file=sys.stderr, flush=True)
+        raw = self._flow_remote(path) if remote else None
+        if raw:
+            try:
+                frames.append(read_flow(raw))
+            except Exception as e:
+                print(f"[flow FAIL] 원격 {path} 읽기: {e}", file=sys.stderr, flush=True)
+        allr = pd.concat([f.reindex(columns=FLOW_COLS) for f in frames], ignore_index=True)
+        allr = allr.drop_duplicates(["quote_et", "option"]).sort_values(["quote_et", "option"], kind="stable")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = gzip.compress(allr.to_csv(index=False).encode(), compresslevel=6, mtime=0)
+        tmp = f".flow_{name}.tmp"                  # 저장소 맨 위(commit.sh가 add 하지 않는 곳)에 쓰고 바꿔치기
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+        print(f"[flow] {name} {day} 저장 {len(allr)}행 (새 {len(new)}행, {len(data) // 1024}KB)", flush=True)
+
+    def _flow_remote(self, path):
+        """원격 같은 브랜치의 그 파일(없으면 None). 얕은 fetch(--depth)는 commit.sh의 rebase 기준을 망가뜨리므로 쓰지 않는다."""
+        try:
+            br = git("rev-parse", "--abbrev-ref", "HEAD")
+            subprocess.run(["git", "fetch", "-q", "--no-write-fetch-head", "origin", f"+refs/heads/{br}:{FLOW_SYNC_REF}"],
+                           capture_output=True, check=True, timeout=120)
+        except Exception as e:
+            print(f"[flow] 원격 받기 실패(이 체크아웃 파일과만 합침): {e}", file=sys.stderr, flush=True)
+        try:
+            return subprocess.run(["git", "show", f"{FLOW_SYNC_REF}:{path}"], capture_output=True, check=True, timeout=120).stdout
+        except Exception:
+            return None
+
     def before(self, s, name, day, qt, win):
         """시세 시각 qt보다 win 이상 앞선 스냅샷 중 가장 최근 것. 메모리(1분 간격)에 없으면 그날 저장된 매시 스냅샷에서 찾는다."""
         need = win - timedelta(seconds=20)      # CBOE 갱신 간격이 정확히 60초가 아니라서 조금 봐준다
@@ -222,7 +375,7 @@ class Live:
                 d = prev_trading_day(d)
                 try:
                     fs = git("ls-tree", "--name-only", "HEAD", f"data/{name}/{d}/").split()
-                    fs = [f for f in fs if "_test" not in f]
+                    fs = [f for f in fs if "_test" not in f and gex.is_snap(f)]
                     if not fs:
                         continue
                     f = max(fs, key=lambda p: gex.tag_key(gex.tag_of(p)))

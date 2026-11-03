@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TSLA Option Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#FFFFFF; --ink:#222222; --sub:#45515E; --mute:#8E8E93; --faint:#A9AEB8;
+  --line:#ECEEF2; --line2:#F0F2F5; --panel:#F5F7FA; --tint:#EFF4FF;
+  --blue:#1456F0; --navy:#17437D; --red:#E5383B; --orange:#E8590C; --pink:#C2389E; --pinkbg:#FDF2FA;
+  --green:#12A150; --cup:#12A150; --cdn:#E5383B; --card:#FFFFFF; --shadow:0 4px 18px rgba(20,40,90,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
+    --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
+    --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --cup:#4FB286; --cdn:#E05F65; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1216; --ink:#ECEEF2; --sub:#B4BCC8; --mute:#8E96A3; --faint:#6B7380;
+  --line:#252B33; --line2:#1E232A; --panel:#171B21; --tint:#14213D; --card:#14181E;
+  --blue:#5B8CFF; --navy:#9DB9FF; --red:#FF6B6E; --orange:#FF8A3D; --pinkbg:#2A1726; --green:#3DD68C; --cup:#4FB286; --cdn:#E05F65; --shadow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans KR",system-ui,sans-serif;
+  letter-spacing:-.2px;word-break:keep-all;-webkit-font-smoothing:antialiased}
+a{color:var(--blue);text-decoration:none;font-weight:700}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 16px 56px}
+header h1{font-weight:900;font-size:30px;margin:0 0 6px;letter-spacing:-.6px}
+header p{margin:0;color:var(--sub);font-size:15px}
+.meta{color:var(--mute);font-size:13px;margin-top:8px}
+.bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:22px 0 18px;padding:10px;border:1.5px solid var(--line);
+  border-radius:16px;background:var(--card)}
+.bar .grp{display:inline-flex;align-items:center;border:1.5px solid var(--line);border-radius:12px;overflow:hidden}
+.bar .nav{background:none;border:0;color:var(--sub);font:700 18px "Noto Sans KR";width:34px;height:34px;cursor:pointer}
+.bar .nav:hover{color:var(--ink);background:var(--panel)}
+.bar select{background:var(--card);color:var(--ink);border:0;border-left:1.5px solid var(--line);border-right:1.5px solid var(--line);
+  font:700 14px "Noto Sans KR";height:34px;padding:0 8px;cursor:pointer;max-width:170px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .l{font-size:13px;color:var(--mute);font-weight:700}
+.kpi .v{font-size:24px;font-weight:900;margin-top:4px;letter-spacing:-.5px}
+.kpi .s{font-size:12px;color:var(--mute);margin-top:2px}
+.card{background:var(--card);border:1.5px solid var(--line);border-radius:20px;padding:20px 20px 16px;box-shadow:var(--shadow);
+  margin-bottom:16px;min-width:0}
+.card h2{font-size:18px;margin:0 0 4px;font-weight:700}
+.card .d{font-size:13px;color:var(--sub);margin:0 0 12px}
+.chart{position:relative;height:340px}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{font-size:12px;color:var(--mute);text-align:right;font-weight:700;padding:6px 8px;border-bottom:1.5px solid var(--line);white-space:nowrap}
+td{text-align:right;padding:7px 8px;border-bottom:1.5px solid var(--line2);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+.b{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px}
+.b.monthly{background:var(--tint);color:var(--blue)}
+.b.dte{background:var(--pinkbg);color:var(--pink)}
+.c{color:var(--red);font-weight:700}.p{color:var(--blue);font-weight:700}
+.up{color:var(--red)}.dn{color:var(--blue)}
+.sd{display:inline-block;min-width:22px;text-align:center;border-radius:6px;font-weight:800;font-size:12px;padding:1px 6px}
+.sd.B{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
+.sd.S{background:color-mix(in srgb,var(--blue) 16%,transparent);color:var(--blue)}
+.sd.M,.sd.Q{background:var(--panel);color:var(--mute)}
+.note{background:var(--panel);border-left:6px solid var(--blue);border-radius:0 16px 16px 0;padding:16px 20px;
+  font-size:13.5px;color:var(--sub);line-height:1.7}
+.note b{color:var(--ink)}
+.empty{color:var(--mute);font-size:14px;padding:24px 0;text-align:center}
+.mute{color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>TSLA Option Flow</h1>
+    <p>틱(약 45초)마다 거래가 몰린 계약과 그 직후 TSLA 움직임 · Cboe data delayed 15 min · <a href="./">← GEX Dashboard</a></p>
+    <div class="meta" id="meta">Loading…</div>
+  </header>
+
+  <div class="bar">
+    <div class="grp"><button class="nav" id="dPrev" aria-label="이전 날짜">‹</button><select id="dSel" aria-label="날짜"></select><button class="nav" id="dNext" aria-label="다음 날짜">›</button></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <h2>현재가 vs 고객 순 델타 흐름(누적)</h2>
+    <p class="d">고객 기준 주식 환산 델타(매수 체결 +, 매도 체결 −) 누적. 딜러 헤지 수요는 반대 부호</p>
+    <div class="chart"><canvas id="cFlow"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>큰 체결 (Top 40)</h2>
+    <p class="d">주식 환산 델타 |Δ| 또는 프리미엄이 그날 가장 큰 틱·계약. 수익률은 그 틱 현재가 대비 1·5·15분 뒤</p>
+    <div class="tbl"><table id="tEv"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>평균 수익률: 만기 × 콜·풋 × 매수·매도</h2>
+    <p class="d">B·S 체결 행 전체(n)와 그중 |Δ| 상위 10%(큰 체결) 각각의 평균. 같은 틱의 행들은 수익률이 같아 서로 독립이 아니다</p>
+    <div class="tbl"><table id="tBk"></table></div>
+  </div>
+
+  <div class="note">
+    <b>정의</b> — dvol = 직전 틱 대비 늘어난 거래량(계약). Side: <b>B</b> 체결가가 매도호가 근처(고객 매수로 봄) · <b>S</b> 매수호가 근처(고객 매도) · <b>M</b> 사이 · <b>?</b> 체결 시각이 안 바뀌었거나 호가 없음.
+    호가는 틱 시점 값이라 근사다. Premium = dvol × 체결가 × 100. Δ(주) = ±dvol × 델타 × 100 (B +, S −, M·? 0) — 풋 매수는 델타가 음수라 음(−).
+    딜러 헤지 = −Δ. ×Med = 그 계약의 그날 틱당 dvol 중앙값 대비 배수, Pct = 그날 |Δ| 백분위.
+    수익률은 그 시각 이후 첫 틱 현재가 기준(3분 넘게 비면 비움). 수집이 180초 넘게 끊긴 구간의 행은 사건·통계에서 뺀다. 학습·연구용이며 투자 판단의 근거로 쓰지 않는다.
+  </div>
+</div>
+
+<script>
+const RAW = "https://raw.githubusercontent.com/baseball2000212-coder/data/main/docs/flow/TSLA";
+const $ = s => document.querySelector(s);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const st = {dates:[], day:null, chart:null};
+const n0 = v => v==null ? "–" : Number(v).toLocaleString("en-US");
+const kfmt = v => v==null ? "–" : Math.abs(v)>=1e9 ? (v/1e9).toFixed(2)+"B" : Math.abs(v)>=1e6 ? (v/1e6).toFixed(2)+"M" : Math.abs(v)>=1e3 ? (v/1e3).toFixed(1)+"K" : String(Math.round(v));
+const money = v => v==null ? "–" : "$" + kfmt(v);
+const sgnK = v => v==null ? "–" : (v>0?"+":v<0?"−":"") + kfmt(Math.abs(v));
+const ret = v => v==null ? `<span class="mute">–</span>` : `<span class="${v>0?"up":v<0?"dn":""}">${v>0?"+":""}${v.toFixed(2)}%</span>`;
+const sdCls = v => v>0 ? "up" : v<0 ? "dn" : "";
+async function getJSON(u){ try { const r = await fetch(`${u}?t=${Date.now()}`, {cache:"no-store"}); return r.ok ? r.json() : null; } catch(e){ return null; } }
+
+// 만기 표시: index.html과 같이 배지는 Monthly(셋째 금요일)와 0DTE 둘만. 연도가 다르면 YY-MM-DD
+const BADGE = {monthly:"Monthly", "0dte":"0DTE"};
+function expTxt(e, day){
+  const d = e.expiry.slice(0,4) === day.slice(0,4) ? e.expiry.slice(5) : e.expiry.slice(2);
+  return d + (e.badge ? `<span class="b ${e.badge==="0dte"?"dte":e.badge}">${BADGE[e.badge]}</span>` : "");
+}
+const cp = c => c==="C" ? `<span class="c">Call</span>` : `<span class="p">Put</span>`;
+const side = s => `<span class="sd ${s==="?"?"Q":s}">${s}</span>`;
+
+function kpis(d){
+  const s = d.summary, chg = s.spot_first ? (s.spot_last/s.spot_first-1)*100 : null;
+  const k = [["TSLA", s.spot_last?.toFixed(2), `${s.first} → ${s.last} ET ${chg==null?"":(chg>0?"+":"")+chg.toFixed(2)+"%"}`],
+             ["거래량(틱 합)", n0(s.dvol), `${n0(s.rows)}행 · ${n0(s.ticks)}틱`],
+             ["프리미엄", money(s.premium), "dvol × 체결가 × 100"],
+             ["고객 순 Δ(주)", sgnK(s.net_sdelta), "딜러 헤지는 반대 부호"],
+             ["Side", `${n0(s.sides?.B||0)} / ${n0(s.sides?.S||0)}`, `B / S · M ${n0(s.sides?.M||0)} · ? ${n0(s.sides?.["?"]||0)}`]];
+  $("#kpis").innerHTML = k.map(([l,v,x]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v??"–"}</div><div class="s">${x}</div></div>`).join("");
+}
+
+function chart(d){
+  st.chart?.destroy();
+  const S = d.series || [], grid = css("--line2"), tick = css("--mute");
+  st.chart = new Chart($("#cFlow"), {type:"line",
+    data:{labels:S.map(x=>x[0]), datasets:[
+      {label:"TSLA", data:S.map(x=>x[1]), borderColor:css("--ink"), borderWidth:1.6, pointRadius:0, yAxisID:"y"},
+      {label:"고객 순 Δ 누적(주)", data:S.map(x=>x[2]), borderColor:css("--orange"), backgroundColor:css("--orange")+"22",
+       borderWidth:1.6, pointRadius:0, fill:"origin", yAxisID:"y2"}]},
+    options:{responsive:true, maintainAspectRatio:false, animation:false, interaction:{mode:"index", intersect:false},
+      plugins:{legend:{labels:{color:css("--sub"), boxWidth:12, font:{family:"Noto Sans KR"}}}},
+      scales:{x:{grid:{color:grid}, ticks:{color:tick, maxTicksLimit:10}},
+              y:{position:"left", grid:{color:grid}, ticks:{color:tick}},
+              y2:{position:"right", grid:{display:false}, ticks:{color:tick, callback:v=>kfmt(v)}}}}});
+}
+
+function events(d){
+  const E = d.events || [];
+  if (!E.length){ $("#tEv").innerHTML = `<tr><td class="empty">체결 기록 없음</td></tr>`; return; }
+  $("#tEv").innerHTML = `<tr><th>Time ET</th><th>Strike</th><th>Expiry</th><th>C/P</th><th>dvol</th><th>×Med</th><th>Side</th><th>Last</th>
+    <th>Premium</th><th>Δ(주)</th><th>Spot</th><th>+1m</th><th>+5m</th><th>+15m</th></tr>` +
+    E.map(e => `<tr><td>${e.t}</td><td>${e.strike}</td><td>${expTxt(e, d.date)}</td><td>${cp(e.cp)}</td><td>${n0(e.dvol)}</td>
+      <td>${e.x_med==null?"–":e.x_med+"x"}</td><td>${side(e.side)}</td><td>${e.last??"–"}</td><td>${money(e.premium)}</td>
+      <td class="${sdCls(e.sdelta)}">${sgnK(e.sdelta)}</td><td>${e.spot?.toFixed(2)??"–"}</td><td>${ret(e.r1)}</td><td>${ret(e.r5)}</td><td>${ret(e.r15)}</td></tr>`).join("");
+}
+
+function buckets(d){
+  const B = (d.buckets || []).filter(b => b.all.n);
+  if (!B.length){ $("#tBk").innerHTML = `<tr><td class="empty">B·S 체결 없음</td></tr>`; return; }
+  const cell = o => `<td>${n0(o.n)}</td><td>${ret(o.r1)}</td><td>${ret(o.r5)}</td><td>${ret(o.r15)}</td>`;
+  $("#tBk").innerHTML = `<tr><th>만기</th><th>C/P</th><th>Side</th><th>n</th><th>+1m</th><th>+5m</th><th>+15m</th><th>큰 체결 n</th><th>+1m</th><th>+5m</th><th>+15m</th></tr>` +
+    B.map(b => `<tr><td>${b.dte}</td><td>${cp(b.cp)}</td><td>${side(b.side)}</td>${cell(b.all)}${cell(b.big)}</tr>`).join("");
+}
+
+async function show(day){
+  st.day = day; $("#dSel").value = day;
+  $("#meta").textContent = "Loading…";
+  const d = await getJSON(`${RAW}/${day}.json`);
+  if (!d){ $("#meta").textContent = `${day}: 데이터 없음`; return; }
+  $("#meta").textContent = `TSLA · ${d.date} · 생성 ${d.generated_kst} KST · 틱 ${d.summary.first}–${d.summary.last} ET`;
+  kpis(d); chart(d); events(d); buckets(d);
+}
+function step(k){ const i = st.dates.indexOf(st.day) + k; if (i >= 0 && i < st.dates.length) show(st.dates[i]); }
+
+(async () => {
+  const idx = await getJSON(`${RAW}/index.json`);
+  st.dates = (idx?.dates || []).slice().sort();
+  if (!st.dates.length){ $("#meta").textContent = "아직 보관된 날짜가 없다(첫 기록은 장 마감 후 생긴다)."; return; }
+  $("#dSel").innerHTML = st.dates.slice().reverse().map(x => `<option value="${x}">${x}</option>`).join("");
+  $("#dSel").onchange = e => show(e.target.value);
+  $("#dPrev").onclick = () => step(-1); $("#dNext").onclick = () => step(1);
+  const q = new URLSearchParams(location.search).get("d");
+  show(st.dates.includes(q) ? q : st.dates[st.dates.length-1]);
+})();
+</script>
+</body>
+</html>
