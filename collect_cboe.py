@@ -74,6 +74,12 @@ def fetch(sym):
     if df.empty:
         return df, ts
     m = df["option"].str.extract(PAT)
+    ok = m.notna().all(axis=1)              # 형식이 다른 계약명(조정 계약 등)은 버린다. 그대로 두면 strike가 NaN이라 int 변환에서 종목 전체가 실패한다
+    if not ok.all():
+        print(f"[warn] {sym}: 계약명 형식이 달라 {int((~ok).sum())}개 제외 (예: {df.loc[~ok, 'option'].iloc[0]})", flush=True)
+        df, m = df[ok].reset_index(drop=True), m[ok].reset_index(drop=True)
+    if df.empty:
+        return df, ts
     df.insert(1, "root", m[0])
     df.insert(2, "expiry", pd.to_datetime("20" + m[1], format="%Y%m%d").dt.date)
     df.insert(3, "cp", m[2])
